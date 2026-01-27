@@ -23,43 +23,43 @@ interface SuggestionCardProps {
 const severityConfig = {
   critical: {
     icon: AlertOctagon,
-    color: 'text-red-700',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-300',
+    color: 'var(--error)',
+    bgColor: 'var(--error-subtle)',
+    borderColor: 'rgba(248, 81, 73, 0.2)',
     label: 'Crítico',
   },
   high: {
     icon: AlertCircle,
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
+    color: '#ff8c42',
+    bgColor: 'rgba(255, 140, 66, 0.1)',
+    borderColor: 'rgba(255, 140, 66, 0.2)',
     label: 'Alto',
   },
   medium: {
     icon: AlertTriangle,
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
+    color: 'var(--warning)',
+    bgColor: 'var(--warning-subtle)',
+    borderColor: 'rgba(240, 180, 41, 0.2)',
     label: 'Medio',
   },
   low: {
     icon: Info,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    color: 'var(--info)',
+    bgColor: 'var(--info-subtle)',
+    borderColor: 'rgba(88, 166, 255, 0.2)',
     label: 'Bajo',
   },
 };
 
-const categoryColors: Record<string, string> = {
-  mission: 'bg-blue-100 text-blue-700',
-  persona: 'bg-purple-100 text-purple-700',
-  flow: 'bg-green-100 text-green-700',
-  guardrails: 'bg-red-100 text-red-700',
-  engagement: 'bg-yellow-100 text-yellow-700',
-  examples: 'bg-indigo-100 text-indigo-700',
-  efficiency: 'bg-gray-100 text-gray-700',
-  hallucination: 'bg-orange-100 text-orange-700',
+const categoryColors: Record<string, { bg: string; text: string; border: string }> = {
+  mission: { bg: 'var(--info-subtle)', text: 'var(--info)', border: 'rgba(88, 166, 255, 0.2)' },
+  persona: { bg: 'rgba(168, 85, 247, 0.1)', text: '#a855f7', border: 'rgba(168, 85, 247, 0.2)' },
+  flow: { bg: 'var(--success-subtle)', text: 'var(--success)', border: 'rgba(63, 185, 80, 0.2)' },
+  guardrails: { bg: 'var(--error-subtle)', text: 'var(--error)', border: 'rgba(248, 81, 73, 0.2)' },
+  engagement: { bg: 'var(--warning-subtle)', text: 'var(--warning)', border: 'rgba(240, 180, 41, 0.2)' },
+  examples: { bg: 'rgba(99, 102, 241, 0.1)', text: '#6366f1', border: 'rgba(99, 102, 241, 0.2)' },
+  efficiency: { bg: 'var(--bg-elevated)', text: 'var(--text-secondary)', border: 'var(--border-subtle)' },
+  hallucination: { bg: 'rgba(255, 140, 66, 0.1)', text: '#ff8c42', border: 'rgba(255, 140, 66, 0.2)' },
 };
 
 export function SuggestionCard({ section }: SuggestionCardProps) {
@@ -72,6 +72,7 @@ export function SuggestionCard({ section }: SuggestionCardProps) {
   const Icon = config.icon;
   const state = suggestionStates[section.id];
   const categoryInfo = CATEGORY_INFO[section.category];
+  const catColors = categoryColors[section.category] || categoryColors.efficiency;
 
   const handleAccept = () => {
     applySuggestion(section.id, section.suggestedRewrite);
@@ -91,49 +92,85 @@ export function SuggestionCard({ section }: SuggestionCardProps) {
     rejectSuggestion(section.id);
   };
 
+  const getBorderStyle = () => {
+    if (state?.status === 'accepted') return { borderColor: 'rgba(63, 185, 80, 0.3)', background: 'var(--success-subtle)' };
+    if (state?.status === 'rejected') return { borderColor: 'var(--border-subtle)', background: 'var(--bg-tertiary)', opacity: 0.6 };
+    return { borderColor: config.borderColor };
+  };
+
+  const borderStyle = getBorderStyle();
+
   return (
     <div
-      className={`border rounded-lg overflow-hidden transition-all ${
-        state?.status === 'accepted'
-          ? 'border-green-300 bg-green-50'
-          : state?.status === 'rejected'
-          ? 'border-gray-300 bg-gray-50 opacity-60'
-          : config.borderColor
-      }`}
+      className="rounded-xl overflow-hidden transition-all duration-200"
+      style={{
+        border: `1px solid ${borderStyle.borderColor}`,
+        background: borderStyle.background || 'var(--bg-secondary)',
+        opacity: borderStyle.opacity || 1
+      }}
     >
       {/* Header */}
       <div
-        className={`p-3 cursor-pointer ${state?.status === 'accepted' ? 'bg-green-50' : config.bgColor}`}
+        className="p-4 cursor-pointer transition-all duration-200 hover:bg-[var(--accent-subtle)]"
+        style={{ background: state?.status === 'accepted' ? 'var(--success-subtle)' : config.bgColor }}
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <div className="flex items-start gap-2">
-          <Icon className={`h-4 w-4 ${config.color} flex-shrink-0 mt-0.5`} />
+        <div className="flex items-start gap-3">
+          <Icon className="h-4 w-4 flex-shrink-0 mt-0.5" style={{ color: config.color }} />
           <div className="flex-1 min-w-0">
             {/* Tags */}
-            <div className="flex flex-wrap items-center gap-1.5 mb-2">
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${config.bgColor} ${config.color}`}>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span
+                className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase"
+                style={{
+                  background: config.bgColor,
+                  color: config.color,
+                  border: `1px solid ${config.borderColor}`
+                }}
+              >
                 {config.label}
               </span>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${categoryColors[section.category]}`}>
+              <span
+                className="text-[10px] font-medium px-2 py-0.5 rounded-md"
+                style={{
+                  background: catColors.bg,
+                  color: catColors.text,
+                  border: `1px solid ${catColors.border}`
+                }}
+              >
                 {categoryInfo?.label || section.category}
               </span>
               {state?.status === 'accepted' && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-100 text-green-700">
+                <span
+                  className="text-[10px] font-bold px-2 py-0.5 rounded-md uppercase"
+                  style={{
+                    background: 'var(--success-subtle)',
+                    color: 'var(--success)',
+                    border: '1px solid rgba(63, 185, 80, 0.2)'
+                  }}
+                >
                   Aplicado
                 </span>
               )}
               {state?.status === 'rejected' && (
-                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                <span
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-md"
+                  style={{
+                    background: 'var(--bg-elevated)',
+                    color: 'var(--text-muted)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
                   Rechazado
                 </span>
               )}
             </div>
 
             {/* Issues */}
-            <ul className="space-y-0.5 mb-2">
+            <ul className="space-y-1 mb-2">
               {section.issues.map((issue, idx) => (
-                <li key={idx} className="text-xs text-gray-700 flex items-start gap-1.5">
-                  <span className="text-gray-400">•</span>
+                <li key={idx} className="text-xs flex items-start gap-2" style={{ color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>•</span>
                   <span>{issue}</span>
                 </li>
               ))}
@@ -141,43 +178,55 @@ export function SuggestionCard({ section }: SuggestionCardProps) {
 
             {/* Impact */}
             {section.impact && (
-              <p className="text-xs text-gray-500 italic">
-                <strong>Impacto:</strong> {section.impact}
+              <p className="text-xs italic" style={{ color: 'var(--text-tertiary)' }}>
+                <strong style={{ color: 'var(--text-secondary)' }}>Impacto:</strong> {section.impact}
               </p>
             )}
           </div>
 
-          <button className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600 transition-colors">
-            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          <button className="flex-shrink-0 p-1 rounded-md transition-all duration-200">
+            {isExpanded ? (
+              <ChevronUp className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+            ) : (
+              <ChevronDown className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+            )}
           </button>
         </div>
       </div>
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="p-3 border-t border-gray-200 bg-white space-y-3">
+        <div
+          className="p-4 border-t space-y-4"
+          style={{ borderColor: 'var(--border-subtle)', background: 'var(--bg-primary)' }}
+        >
           {/* Explanation */}
           <div>
-            <p className="text-xs font-medium text-gray-500 mb-1">Explicación</p>
-            <p className="text-sm text-gray-700">{section.explanation}</p>
+            <p className="text-xs font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>
+              Explicación
+            </p>
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {section.explanation}
+            </p>
           </div>
 
           {isEditing ? (
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-gray-500">
+            <div className="space-y-3">
+              <label className="block text-xs font-semibold" style={{ color: 'var(--text-muted)' }}>
                 Editar sugerencia:
               </label>
               <textarea
                 value={editedText}
                 onChange={(e) => setEditedText(e.target.value)}
-                className="w-full h-32 p-2 border border-gray-300 rounded text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                className="input w-full h-32 font-mono text-sm resize-none"
               />
               <div className="flex gap-2">
                 <button
                   onClick={handleSaveEdit}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200"
+                  style={{ background: 'var(--success)', color: '#0a0e14' }}
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3.5 w-3.5" />
                   Guardar
                 </button>
                 <button
@@ -185,7 +234,7 @@ export function SuggestionCard({ section }: SuggestionCardProps) {
                     setIsEditing(false);
                     setEditedText(section.suggestedRewrite);
                   }}
-                  className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-300 transition-colors"
+                  className="px-4 py-2 text-xs font-medium rounded-lg btn-secondary"
                 >
                   Cancelar
                 </button>
@@ -199,23 +248,24 @@ export function SuggestionCard({ section }: SuggestionCardProps) {
                 <div className="flex gap-2">
                   <button
                     onClick={handleAccept}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-all duration-200"
+                    style={{ background: 'var(--success)', color: '#0a0e14' }}
                   >
-                    <Check className="h-3 w-3" />
+                    <Check className="h-3.5 w-3.5" />
                     Aplicar
                   </button>
                   <button
                     onClick={handleEdit}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded text-xs font-medium hover:bg-blue-700 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg btn-primary"
                   >
-                    <Edit className="h-3 w-3" />
+                    <Edit className="h-3.5 w-3.5" />
                     Editar
                   </button>
                   <button
                     onClick={handleReject}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-gray-200 text-gray-700 rounded text-xs font-medium hover:bg-gray-300 transition-colors"
+                    className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg btn-secondary"
                   >
-                    <X className="h-3 w-3" />
+                    <X className="h-3.5 w-3.5" />
                     Ignorar
                   </button>
                 </div>

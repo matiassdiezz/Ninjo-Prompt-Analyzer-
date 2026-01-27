@@ -6,6 +6,13 @@ export interface PromptVersion {
   label: string;
   changes?: VersionChange[];
   parentVersionId?: string;
+  // NEW: Top-level change type for quick filtering/display
+  changeType?: 'manual' | 'suggestion_applied' | 'auto_save';
+  changeDetails?: {
+    suggestionId?: string;
+    category?: string;
+    sectionTitle?: string;
+  };
 }
 
 export interface VersionChange {
@@ -59,6 +66,26 @@ export interface SuggestionDecision {
   severity: string;
   timestamp: number;
   savedToKnowledge: boolean;
+}
+
+// Inline annotations/comments on prompt text
+export interface PromptAnnotation {
+  id: string;
+  // Text selection range (character indices)
+  startOffset: number;
+  endOffset: number;
+  // The selected text at the time of annotation
+  selectedText: string;
+  // User's comment
+  comment: string;
+  // Type of annotation
+  type: 'note' | 'improvement' | 'warning' | 'question';
+  // Optional: convert to knowledge entry
+  savedAsKnowledge: boolean;
+  knowledgeEntryId?: string;
+  // Metadata
+  createdAt: number;
+  updatedAt: number;
 }
 
 // Legacy support

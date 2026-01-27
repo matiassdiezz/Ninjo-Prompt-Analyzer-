@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useMemo, useCallback } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
 import { useComparisonStore } from '@/store/comparisonStore';
 import { EditorPanel } from '@/components/editor/EditorPanel';
@@ -9,9 +10,22 @@ import { ComparisonPanel } from '@/components/comparison/ComparisonPanel';
 import { ProjectSelector } from '@/components/projects/ProjectSelector';
 import { SyncStatus } from '@/components/ui/SyncStatus';
 import { AnalysisProgress } from '@/components/ui/AnalysisProgress';
+import { ContextualSuggestionsPanel } from '@/components/workspace/ContextualSuggestionsPanel';
+import { parseSemanticSections, type SemanticSection } from '@/lib/semanticParser';
+import { mapSuggestionsToSections } from '@/lib/suggestionMapper';
 import { useSupabaseInit } from '@/lib/supabase/hooks/useSupabaseInit';
 import { useStreamingAnalysis } from '@/lib/hooks/useStreamingAnalysis';
-import { Sparkles, AlertCircle, RotateCcw, StopCircle, ArrowLeftRight } from 'lucide-react';
+import {
+  AlertCircle,
+  RotateCcw,
+  StopCircle,
+  ArrowLeftRight,
+  PanelRightClose,
+  PanelRight,
+  Sparkles,
+  Zap,
+} from 'lucide-react';
+import Image from 'next/image';
 
 export default function Home() {
   const {
@@ -20,6 +34,7 @@ export default function Home() {
     analysis,
     error,
     reset,
+    selectedSectionId,
   } = useAnalysisStore();
 
   const {
@@ -39,6 +54,28 @@ export default function Home() {
   useSupabaseInit();
 
   const isCompareMode = mode === 'compare';
+  const [showSuggestionsPanel, setShowSuggestionsPanel] = useState(true);
+  const [selectedSection, setSelectedSection] = useState<SemanticSection | null>(null);
+
+  // Parse sections and map suggestions
+  const semanticSections = useMemo(() => {
+    return parseSemanticSections(currentPrompt);
+  }, [currentPrompt]);
+
+  const suggestionsBySection = useMemo(() => {
+    if (!analysis?.sections) return new Map();
+    return mapSuggestionsToSections(analysis.sections, semanticSections);
+  }, [analysis?.sections, semanticSections]);
+
+  // Get suggestions for the selected section
+  const sectionSuggestions = useMemo(() => {
+    if (!selectedSectionId || !analysis?.sections) return [];
+    return suggestionsBySection.get(selectedSectionId) || [];
+  }, [selectedSectionId, analysis?.sections, suggestionsBySection]);
+
+  const handleSectionSelect = useCallback((section: SemanticSection | null) => {
+    setSelectedSection(section);
+  }, []);
 
   const handleAnalyze = async () => {
     if (!currentPrompt.trim()) {
@@ -53,19 +90,29 @@ export default function Home() {
 
   // Show results panel if we have analysis OR if we're streaming with sections found
   const showResults = !!analysis || (isStreaming && sectionsFound > 0);
+  const hasSuggestions = analysis && analysis.sections.length > 0;
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-screen flex flex-col noise-overlay" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
-      <header className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-[1600px] mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Sparkles className="h-5 w-5 text-blue-600" />
+      <header className="flex-shrink-0 glass border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+        <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 relative">
+              <Image
+                src="/images/logo_from_svg_transparent_4x.png"
+                alt="Ninjo Logo"
+                fill
+                className="object-contain drop-shadow-lg"
+              />
             </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">Ninjo Prompt Analyzer</h1>
-              <p className="text-xs text-gray-500">Mejora tus prompts con IA</p>
+            <div className="hidden sm:block">
+              <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Ninjo
+              </h1>
+              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                Prompt Analyzer
+              </p>
             </div>
           </div>
 
@@ -75,35 +122,53 @@ export default function Home() {
             <ProjectSelector />
 
             {/* Mode Toggle */}
-            <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
+            <div
+              className="flex items-center rounded-xl p-1"
+              style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
+            >
               <button
                 onClick={() => setMode('analyze')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-all duration-200 ${
                   !isCompareMode
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'btn-primary'
+                    : 'btn-ghost'
                 }`}
               >
                 <Sparkles className="h-4 w-4" />
-                <span className="hidden sm:inline">Analizar</span>
+                <span className="hidden sm:inline font-medium">Analizar</span>
               </button>
               <button
                 onClick={() => setMode('compare')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+                className={`flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-all duration-200 ${
                   isCompareMode
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'btn-primary'
+                    : 'btn-ghost'
                 }`}
               >
                 <ArrowLeftRight className="h-4 w-4" />
-                <span className="hidden sm:inline">Comparar</span>
+                <span className="hidden sm:inline font-medium">Comparar</span>
               </button>
             </div>
+
+            {/* Toggle suggestions panel */}
+            {!isCompareMode && (
+              <button
+                onClick={() => setShowSuggestionsPanel(!showSuggestionsPanel)}
+                className="p-2.5 rounded-lg btn-ghost transition-all duration-200"
+                title={showSuggestionsPanel ? 'Ocultar sugerencias' : 'Mostrar sugerencias'}
+              >
+                {showSuggestionsPanel ? (
+                  <PanelRightClose className="h-5 w-5" />
+                ) : (
+                  <PanelRight className="h-5 w-5" />
+                )}
+              </button>
+            )}
 
             <button
               onClick={reset}
               disabled={isStreaming || isComparing}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg btn-ghost disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200"
             >
               <RotateCcw className="h-4 w-4" />
               <span className="hidden sm:inline">Reset</span>
@@ -114,24 +179,24 @@ export default function Home() {
 
       {/* Main Content */}
       <main className="flex-1 min-h-0 p-4">
-        <div className="h-full max-w-[1600px] mx-auto">
+        <div className="h-full max-w-[1800px] mx-auto">
           {isCompareMode ? (
             /* Comparison Mode */
-            <div className="h-full bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+            <div className="h-full card overflow-hidden animate-fadeIn">
               <ComparisonPanel />
             </div>
           ) : (
-            /* Normal Analysis Mode */
-            <div className="h-full grid grid-cols-1 lg:grid-cols-12 gap-4">
-              {/* Left Column - Editor */}
-              <div className="lg:col-span-7 flex flex-col gap-4 min-h-0">
+            /* Workspace Mode - 3 Column Layout */
+            <div className="h-full flex gap-4">
+              {/* Left Column - Editor with integrated sections sidebar */}
+              <div className="flex-1 flex flex-col gap-4 min-w-0">
                 {/* Editor */}
-                <div className="flex-1 bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden min-h-0">
-                  <EditorPanel />
+                <div className="flex-1 card overflow-hidden min-h-0 glow-border animate-fadeIn">
+                  <EditorPanel onSectionSelect={handleSectionSelect} />
                 </div>
 
                 {/* Context (Collapsible) */}
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 animate-slideUp" style={{ animationDelay: '0.1s' }}>
                   <ContextCollapsible />
                 </div>
 
@@ -139,7 +204,8 @@ export default function Home() {
                 {isStreaming ? (
                   <button
                     onClick={handleCancel}
-                    className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-semibold shadow-md hover:shadow-lg"
+                    className="flex-shrink-0 flex items-center justify-center gap-3 px-8 py-4 btn-danger rounded-xl font-semibold text-base transition-all duration-200 animate-slideUp"
+                    style={{ animationDelay: '0.15s' }}
                   >
                     <StopCircle className="h-5 w-5" />
                     Cancelar Análisis
@@ -148,63 +214,96 @@ export default function Home() {
                   <button
                     onClick={handleAnalyze}
                     disabled={!currentPrompt.trim()}
-                    className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-md hover:shadow-lg disabled:hover:shadow-md"
+                    className="flex-shrink-0 flex items-center justify-center gap-3 px-8 py-4 btn-primary rounded-xl font-semibold text-base transition-all duration-200 animate-slideUp"
+                    style={{ animationDelay: '0.15s' }}
                   >
-                    <Sparkles className="h-5 w-5" />
+                    <Zap className="h-5 w-5" />
                     Analizar Prompt
                   </button>
                 )}
 
                 {/* Error */}
                 {error && (
-                  <div className="flex-shrink-0 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
-                    <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                  <div
+                    className="flex-shrink-0 rounded-xl p-4 flex items-start gap-3 animate-slideUp"
+                    style={{
+                      background: 'var(--error-subtle)',
+                      border: '1px solid rgba(248, 81, 73, 0.2)'
+                    }}
+                  >
+                    <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
                     <div>
-                      <p className="font-medium text-red-800 text-sm">Error</p>
-                      <p className="text-red-600 text-sm">{error}</p>
+                      <p className="font-semibold text-sm" style={{ color: 'var(--error)' }}>Error</p>
+                      <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{error}</p>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Right Column - Results with Progress */}
-              <div className="lg:col-span-5 min-h-0 flex flex-col gap-4">
-                {/* Progress indicator (compact when showing results) */}
-                {isStreaming && (
-                  <div className={showResults ? '' : 'flex-1'}>
-                    <AnalysisProgress compact={showResults} />
-                  </div>
-                )}
-
-                {/* Results Panel */}
-                {showResults && (
-                  <div className={`bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden ${isStreaming ? 'flex-1' : 'h-full'}`}>
-                    <ResultsPanel isStreaming={isStreaming} />
-                  </div>
-                )}
-
-                {/* Empty state when not analyzing and no results */}
-                {!isStreaming && !analysis && (
-                  <div className="h-full bg-white rounded-lg border border-gray-200 shadow-sm flex items-center justify-center">
-                    <div className="text-center p-8">
-                      <Sparkles className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-                      <p className="text-gray-500">
-                        Ingresa un prompt y haz clic en &quot;Analizar&quot; para comenzar
-                      </p>
+              {/* Right Column - Suggestions Panel + Results Tabs */}
+              {showSuggestionsPanel && (
+                <div className="w-[380px] flex-shrink-0 flex flex-col gap-4 min-h-0">
+                  {/* Progress indicator (when streaming) */}
+                  {isStreaming && (
+                    <div className={`animate-fadeIn ${showResults ? '' : 'flex-1'}`}>
+                      <AnalysisProgress compact={showResults} />
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+
+                  {/* Contextual Suggestions Panel */}
+                  {hasSuggestions && (
+                    <div
+                      className="h-[50%] min-h-[200px] card overflow-hidden animate-slideUp"
+                      style={{ animationDelay: '0.05s' }}
+                    >
+                      <ContextualSuggestionsPanel
+                        selectedSection={selectedSection}
+                        suggestions={sectionSuggestions}
+                        allSuggestions={analysis?.sections || []}
+                      />
+                    </div>
+                  )}
+
+                  {/* Results Panel (existing tabs) */}
+                  {showResults ? (
+                    <div
+                      className={`card overflow-hidden animate-slideUp ${hasSuggestions ? 'flex-1' : 'h-full'}`}
+                      style={{ animationDelay: '0.1s' }}
+                    >
+                      <ResultsPanel isStreaming={isStreaming} />
+                    </div>
+                  ) : !isStreaming && (
+                    <div
+                      className="h-full card flex items-center justify-center animate-fadeIn"
+                    >
+                      <div className="text-center p-8">
+                        <div
+                          className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
+                          style={{ background: 'var(--accent-subtle)', border: '1px solid var(--border-accent)' }}
+                        >
+                          <Sparkles className="h-8 w-8" style={{ color: 'var(--accent-primary)' }} />
+                        </div>
+                        <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                          Ingresa un prompt y haz clic en <span style={{ color: 'var(--accent-primary)' }}>Analizar</span> para comenzar
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="flex-shrink-0 bg-white border-t border-gray-200">
-        <div className="max-w-[1600px] mx-auto px-4 py-2">
-          <p className="text-xs text-gray-500 text-center">
-            Powered by Claude Sonnet 4.5
+      <footer
+        className="flex-shrink-0 border-t"
+        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)' }}
+      >
+        <div className="max-w-[1800px] mx-auto px-6 py-2.5">
+          <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>
+            Powered by <span style={{ color: 'var(--accent-primary)' }}>Claude Sonnet 4.5</span>
           </p>
         </div>
       </footer>

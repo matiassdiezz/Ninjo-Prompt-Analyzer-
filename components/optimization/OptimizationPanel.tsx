@@ -7,6 +7,7 @@ import { RedundancyPanel } from './RedundancyPanel';
 import { CompressionCard } from './CompressionCard';
 import { TokenUsageDisplay } from '@/components/analysis/TokenUsageDisplay';
 import { formatTokens } from '@/types/tokens';
+import { findTextInPrompt } from '@/lib/utils/textMatcher';
 import {
   Zap,
   Loader2,
@@ -43,9 +44,20 @@ export function OptimizationPanel() {
     const suggestion = result?.suggestions.find((s) => s.id === suggestionId);
     if (!suggestion) return;
 
+    // Use text matching instead of indices (more reliable)
+    const match = findTextInPrompt(currentPrompt, suggestion.originalText, {
+      enableFuzzy: true,
+      fuzzyThreshold: 0.85,
+    });
+
+    if (!match.found || match.confidence < 0.85) {
+      console.warn('Could not find original text in prompt:', suggestion.originalText.substring(0, 50));
+      return;
+    }
+
     // Apply the compression to the prompt
-    const before = currentPrompt.substring(0, suggestion.startIndex);
-    const after = currentPrompt.substring(suggestion.endIndex);
+    const before = currentPrompt.substring(0, match.startIndex);
+    const after = currentPrompt.substring(match.endIndex);
     const newPrompt = before + suggestion.compressedText + after;
 
     setPrompt(newPrompt);
@@ -55,17 +67,33 @@ export function OptimizationPanel() {
   const handleApplyAll = () => {
     if (!result) return;
 
-    // Apply all pending suggestions (in reverse order to maintain indices)
+    // Get all pending suggestions
     const pendingSuggestions = result.suggestions
-      .filter((s) => compressionStates[s.id]?.status === 'pending')
-      .sort((a, b) => b.startIndex - a.startIndex);
+      .filter((s) => compressionStates[s.id]?.status === 'pending');
 
     let newPrompt = currentPrompt;
+    const appliedIds: string[] = [];
+
+    // Apply each suggestion using text matching (no need to sort by index)
     for (const suggestion of pendingSuggestions) {
-      const before = newPrompt.substring(0, suggestion.startIndex);
-      const after = newPrompt.substring(suggestion.endIndex);
-      newPrompt = before + suggestion.compressedText + after;
-      applySuggestion(suggestion.id);
+      const match = findTextInPrompt(newPrompt, suggestion.originalText, {
+        enableFuzzy: true,
+        fuzzyThreshold: 0.85,
+      });
+
+      if (match.found && match.confidence >= 0.85) {
+        const before = newPrompt.substring(0, match.startIndex);
+        const after = newPrompt.substring(match.endIndex);
+        newPrompt = before + suggestion.compressedText + after;
+        appliedIds.push(suggestion.id);
+      } else {
+        console.warn('Could not find original text for suggestion:', suggestion.id);
+      }
+    }
+
+    // Mark all successfully applied suggestions
+    for (const id of appliedIds) {
+      applySuggestion(id);
     }
 
     setPrompt(newPrompt);

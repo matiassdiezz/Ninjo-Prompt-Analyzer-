@@ -2,24 +2,56 @@
 
 import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
-import { parsePromptSections, type ParsedSection } from '@/lib/promptParser';
+import { parseSemanticSections, type SemanticSection } from '@/lib/semanticParser';
+import { enrichSectionsWithSuggestions } from '@/lib/suggestionMapper';
 import { estimateTokens } from '@/lib/hooks/useTokenEstimation';
-import { List, Code, ChevronLeft, Coins } from 'lucide-react';
+import { SectionsSidebar } from '@/components/workspace/SectionItem';
+import { SaveVersionButton, VersionIndicator } from './SaveVersionButton';
+import { AnnotationPopover } from './AnnotationPopover';
+import { AnnotationMarkers, AnnotationsSidebar } from './AnnotationMarkers';
+import type { PromptAnnotation } from '@/types/prompt';
+import { List, ChevronLeft, Coins, FileCode, MessageSquarePlus } from 'lucide-react';
 
-export function EditorPanel() {
-  const { currentPrompt, setPrompt } = useAnalysisStore();
+interface EditorPanelProps {
+  onSectionSelect?: (section: SemanticSection | null) => void;
+}
+
+export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
+  const {
+    currentPrompt,
+    setPrompt,
+    analysis,
+    selectedSectionId,
+    setSelectedSectionId,
+    annotations,
+  } = useAnalysisStore();
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [highlightedLines, setHighlightedLines] = useState<{ start: number; end: number } | null>(null);
+
+  // Annotation state
+  const [showAnnotationPopover, setShowAnnotationPopover] = useState(false);
+  const [annotationPopoverPosition, setAnnotationPopoverPosition] = useState({ x: 0, y: 0 });
+  const [selectedTextRange, setSelectedTextRange] = useState<{ start: number; end: number; text: string } | null>(null);
+  const [editingAnnotation, setEditingAnnotation] = useState<PromptAnnotation | undefined>(undefined);
 
   const lines = currentPrompt.split('\n');
   const lineCount = lines.length;
   const estimatedTokenCount = useMemo(() => estimateTokens(currentPrompt), [currentPrompt]);
 
-  const sections = useMemo(() => {
-    return parsePromptSections(currentPrompt);
+  // Parse semantic sections
+  const rawSections = useMemo(() => {
+    return parseSemanticSections(currentPrompt);
   }, [currentPrompt]);
+
+  // Enrich sections with suggestion counts
+  const sections = useMemo(() => {
+    if (!analysis?.sections) return rawSections;
+    return enrichSectionsWithSuggestions(rawSections, analysis.sections).map(s => s.section);
+  }, [rawSections, analysis?.sections]);
 
   const handleScroll = useCallback(() => {
     if (textareaRef.current && lineNumbersRef.current) {
@@ -27,9 +59,15 @@ export function EditorPanel() {
     }
   }, []);
 
-  const handleSectionClick = (section: ParsedSection) => {
+  const handleSectionClick = (section: SemanticSection) => {
+    // Toggle selection if clicking the same section
+    const newSelectedId = selectedSectionId === section.id ? null : section.id;
+    setSelectedSectionId(newSelectedId);
+
+    // Highlight the section
     setHighlightedLines({ start: section.startLine, end: section.endLine });
 
+    // Scroll to section
     if (textareaRef.current) {
       const lineHeight = 20;
       const targetScroll = (section.startLine - 1) * lineHeight;
@@ -42,6 +80,11 @@ export function EditorPanel() {
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(charIndex, charIndex);
     }
+
+    // Notify parent
+    if (onSectionSelect) {
+      onSectionSelect(newSelectedId ? section : null);
+    }
   };
 
   // Clear highlight after delay
@@ -52,6 +95,94 @@ export function EditorPanel() {
     }
   }, [highlightedLines]);
 
+  // Handle text selection for annotations
+  const handleTextSelection = useCallback(() => {
+    if (!textareaRef.current) return;
+
+    const textarea = textareaRef.current;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+
+    if (start !== end && end - start >= 3) {
+      const selectedText = currentPrompt.substring(start, end);
+      setSelectedTextRange({ start, end, text: selectedText });
+    } else {
+      setSelectedTextRange(null);
+    }
+  }, [currentPrompt]);
+
+  // Show annotation popover for selected text
+  const handleAddAnnotation = useCallback(() => {
+    if (!selectedTextRange || !textareaRef.current) return;
+
+    const textarea = textareaRef.current;
+    const rect = textarea.getBoundingClientRect();
+
+    // Calculate position based on selection
+    const textBeforeSelection = currentPrompt.substring(0, selectedTextRange.start);
+    const linesBeforeSelection = textBeforeSelection.split('\n');
+    const lineNumber = linesBeforeSelection.length;
+    const lineHeight = 20;
+
+    setAnnotationPopoverPosition({
+      x: rect.left + rect.width / 2,
+      y: rect.top + (lineNumber * lineHeight) + 40,
+    });
+    setEditingAnnotation(undefined);
+    setShowAnnotationPopover(true);
+  }, [selectedTextRange, currentPrompt]);
+
+  // Handle clicking on existing annotation
+  const handleAnnotationClick = useCallback((annotation: PromptAnnotation, position: { x: number; y: number }) => {
+    setSelectedTextRange({
+      start: annotation.startOffset,
+      end: annotation.endOffset,
+      text: annotation.selectedText,
+    });
+    setAnnotationPopoverPosition(position);
+    setEditingAnnotation(annotation);
+    setShowAnnotationPopover(true);
+  }, []);
+
+  // Close annotation popover
+  const handleCloseAnnotationPopover = useCallback(() => {
+    setShowAnnotationPopover(false);
+    setSelectedTextRange(null);
+    setEditingAnnotation(undefined);
+  }, []);
+
+  // Keyboard shortcut for adding annotation (Cmd/Ctrl + M)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'm') {
+        e.preventDefault();
+        if (selectedTextRange && !showAnnotationPopover) {
+          handleAddAnnotation();
+        }
+      }
+      // Close popover on Escape
+      if (e.key === 'Escape' && showAnnotationPopover) {
+        handleCloseAnnotationPopover();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedTextRange, showAnnotationPopover, handleAddAnnotation, handleCloseAnnotationPopover]);
+
+  // Find the currently selected section object
+  const selectedSection = useMemo(() => {
+    if (!selectedSectionId) return null;
+    return sections.find(s => s.id === selectedSectionId) || null;
+  }, [sections, selectedSectionId]);
+
+  // Notify parent when selection changes
+  useEffect(() => {
+    if (onSectionSelect) {
+      onSectionSelect(selectedSection);
+    }
+  }, [selectedSection, onSectionSelect]);
+
   const isLineHighlighted = (lineNum: number) => {
     if (!highlightedLines) return false;
     return lineNum >= highlightedLines.start && lineNum <= highlightedLines.end;
@@ -60,103 +191,103 @@ export function EditorPanel() {
   const lineNumbers = Array.from({ length: Math.max(lineCount, 20) }, (_, i) => i + 1);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-secondary)' }}>
       {/* Editor Header */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
-        <div className="flex items-center gap-2">
+      <div
+        className="flex items-center justify-between px-4 py-3 border-b"
+        style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-subtle)' }}
+      >
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded hover:bg-gray-200 transition-colors"
+            className="p-2 rounded-lg btn-ghost transition-all duration-200"
             title={sidebarOpen ? 'Ocultar secciones' : 'Mostrar secciones'}
           >
             {sidebarOpen ? (
-              <ChevronLeft className="h-4 w-4 text-gray-600" />
+              <ChevronLeft className="h-4 w-4" />
             ) : (
-              <List className="h-4 w-4 text-gray-600" />
+              <List className="h-4 w-4" />
             )}
           </button>
-          <span className="text-sm font-medium text-gray-700">
-            Prompt Editor
-          </span>
+          <div className="flex items-center gap-2">
+            <FileCode className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              Prompt Workspace
+            </span>
+          </div>
           {sections.length > 0 && (
-            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
+            <span className="badge badge-accent">
               {sections.length} secciones
             </span>
           )}
         </div>
-        <div className="flex items-center gap-1 text-xs text-gray-500">
-          <span>{lineCount} líneas</span>
-          <span className="text-gray-300">·</span>
-          <span>{currentPrompt.length} caracteres</span>
-          <span className="text-gray-300">·</span>
-          <Coins className="h-3 w-3 text-gray-400" />
-          <span>~{estimatedTokenCount} tokens</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+            <span>{lineCount} líneas</span>
+            <span style={{ color: 'var(--border-default)' }}>|</span>
+            <div className="flex items-center gap-1.5">
+              <Coins className="h-3.5 w-3.5" style={{ color: 'var(--accent-primary)' }} />
+              <span>~{estimatedTokenCount.toLocaleString()} tokens</span>
+            </div>
+            {annotations.length > 0 && (
+              <>
+                <span style={{ color: 'var(--border-default)' }}>|</span>
+                <span>{annotations.length} notas</span>
+              </>
+            )}
+          </div>
+          {/* Add annotation button - visible when text is selected */}
+          {selectedTextRange && (
+            <button
+              onClick={handleAddAnnotation}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium btn-primary animate-fadeIn"
+              title="Agregar comentario (Cmd/Ctrl + M)"
+            >
+              <MessageSquarePlus className="h-3.5 w-3.5" />
+              Comentar
+            </button>
+          )}
+          <div className="h-4 w-px" style={{ background: 'var(--border-default)' }} />
+          <VersionIndicator />
+          <SaveVersionButton />
         </div>
       </div>
 
       {/* Editor Body */}
       <div className="flex flex-1 min-h-0">
         {/* Sections Sidebar */}
-        {sidebarOpen && (
-          <div className="w-48 border-r border-gray-200 bg-gray-50 overflow-y-auto flex-shrink-0">
-            <div className="p-3">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Secciones
-              </h3>
-              {sections.length === 0 ? (
-                <p className="text-xs text-gray-400 italic">
-                  {currentPrompt.trim()
-                    ? 'No se detectaron secciones XML'
-                    : 'Pega tu prompt...'}
-                </p>
-              ) : (
-                <nav className="space-y-1">
-                  {sections.map((section) => (
-                    <button
-                      key={section.id}
-                      onClick={() => handleSectionClick(section)}
-                      className={`
-                        w-full text-left px-2 py-1.5 rounded text-xs transition-colors
-                        ${highlightedLines?.start === section.startLine
-                          ? 'bg-yellow-100 text-yellow-800'
-                          : 'hover:bg-gray-200 text-gray-700'
-                        }
-                      `}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <Code className="h-3 w-3 text-blue-500 flex-shrink-0" />
-                        <span className="truncate">&lt;{section.tagName}&gt;</span>
-                      </div>
-                      <span className="text-gray-400 ml-4.5 text-[10px]">
-                        L{section.startLine}
-                      </span>
-                    </button>
-                  ))}
-                </nav>
-              )}
-            </div>
-          </div>
-        )}
+        <SectionsSidebar
+          sections={sections}
+          selectedSectionId={selectedSectionId}
+          onSectionClick={handleSectionClick}
+          isOpen={sidebarOpen}
+        />
 
         {/* Code Editor */}
         <div className="flex flex-1 min-w-0">
           {/* Line Numbers */}
           <div
             ref={lineNumbersRef}
-            className="bg-gray-100 border-r border-gray-200 text-right py-3 px-2 select-none overflow-hidden flex-shrink-0"
-            style={{ width: '40px' }}
+            className="border-r text-right py-3 px-2 select-none overflow-hidden flex-shrink-0"
+            style={{
+              width: '48px',
+              background: 'var(--bg-tertiary)',
+              borderColor: 'var(--border-subtle)'
+            }}
           >
             {lineNumbers.map((num) => (
               <div
                 key={num}
-                className={`
-                  leading-5 text-xs font-mono transition-colors
-                  ${isLineHighlighted(num)
-                    ? 'text-yellow-700 bg-yellow-200 font-bold'
-                    : 'text-gray-400'
-                  }
-                `}
-                style={{ height: '20px' }}
+                className={`leading-5 text-xs font-mono transition-all duration-200 ${
+                  isLineHighlighted(num)
+                    ? 'font-semibold'
+                    : ''
+                }`}
+                style={{
+                  height: '20px',
+                  color: isLineHighlighted(num) ? 'var(--accent-primary)' : 'var(--text-muted)',
+                  background: isLineHighlighted(num) ? 'var(--accent-subtle)' : 'transparent'
+                }}
               >
                 {num <= lineCount ? num : ''}
               </div>
@@ -164,7 +295,7 @@ export function EditorPanel() {
           </div>
 
           {/* Textarea */}
-          <div className="flex-1 relative">
+          <div ref={editorContainerRef} className="flex-1 relative" style={{ background: 'var(--bg-primary)' }}>
             {/* Highlight Overlay */}
             {highlightedLines && (
               <div
@@ -176,7 +307,7 @@ export function EditorPanel() {
                   return (
                     <div
                       key={index}
-                      className={isLineHighlighted(lineNum) ? 'bg-yellow-100' : ''}
+                      className={isLineHighlighted(lineNum) ? 'editor-highlight' : ''}
                       style={{ height: '20px' }}
                     />
                   );
@@ -184,21 +315,73 @@ export function EditorPanel() {
               </div>
             )}
 
+            {/* Annotation Markers Overlay */}
+            <AnnotationMarkers
+              annotations={annotations}
+              promptText={currentPrompt}
+              onAnnotationClick={handleAnnotationClick}
+            />
+
+            {/* Mini sidebar with annotation icons */}
+            <AnnotationsSidebar
+              annotations={annotations}
+              onAnnotationClick={(annotation) => {
+                // Scroll to annotation and show popover
+                if (textareaRef.current) {
+                  const textBeforeAnnotation = currentPrompt.substring(0, annotation.startOffset);
+                  const linesBeforeAnnotation = textBeforeAnnotation.split('\n');
+                  const lineNumber = linesBeforeAnnotation.length;
+                  const lineHeight = 20;
+                  textareaRef.current.scrollTop = Math.max(0, (lineNumber - 3) * lineHeight);
+                }
+                const rect = editorContainerRef.current?.getBoundingClientRect();
+                if (rect) {
+                  handleAnnotationClick(annotation, { x: rect.left + rect.width / 2, y: rect.top + 100 });
+                }
+              }}
+            />
+
             <textarea
               ref={textareaRef}
               value={currentPrompt}
               onChange={(e) => setPrompt(e.target.value)}
               onScroll={handleScroll}
-              placeholder="Pega tu prompt aquí...
+              onSelect={handleTextSelection}
+              onMouseUp={handleTextSelection}
+              onKeyUp={handleTextSelection}
+              placeholder={`Pega tu prompt aquí...
 
-Tip: Usa tags XML como <instructions>...</instructions> para organizar las secciones."
-              className="absolute inset-0 w-full h-full font-mono text-sm py-3 px-3 resize-none text-gray-900 focus:outline-none bg-transparent"
-              style={{ lineHeight: '20px' }}
+El sistema detectará automáticamente:
+• Tags XML como <instructions>...</instructions>
+• Headers Markdown como ## Sección
+• Títulos con dos puntos como Instrucciones:
+• Bloques de texto separados por líneas vacías
+
+Selecciona texto y haz clic en "Comentar" para agregar notas.`}
+              className="absolute inset-0 w-full h-full font-mono text-sm py-3 px-4 resize-none focus:outline-none"
+              style={{
+                lineHeight: '20px',
+                color: 'var(--text-primary)',
+                background: 'transparent',
+                caretColor: 'var(--accent-primary)'
+              }}
               spellCheck={false}
             />
           </div>
         </div>
       </div>
+
+      {/* Annotation Popover */}
+      {showAnnotationPopover && selectedTextRange && (
+        <AnnotationPopover
+          position={annotationPopoverPosition}
+          selectedText={selectedTextRange.text}
+          startOffset={selectedTextRange.start}
+          endOffset={selectedTextRange.end}
+          existingAnnotation={editingAnnotation}
+          onClose={handleCloseAnnotationPopover}
+        />
+      )}
     </div>
   );
 }

@@ -49,20 +49,34 @@ export function AnalysisProgress({ compact = false }: AnalysisProgressProps) {
   // Compact mode - just a progress bar with step name
   if (compact) {
     return (
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 shadow-sm">
+      <div
+        className="rounded-xl p-4"
+        style={{
+          background: 'var(--accent-subtle)',
+          border: '1px solid var(--border-accent)'
+        }}
+      >
         <div className="flex items-center gap-3">
-          <Loader2 className="h-4 w-4 text-blue-600 animate-spin flex-shrink-0" />
+          <Loader2 className="h-5 w-5 animate-spin flex-shrink-0" style={{ color: 'var(--accent-primary)' }} />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between text-sm mb-1">
-              <span className="text-blue-700 font-medium truncate">
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span className="font-medium truncate" style={{ color: 'var(--accent-primary)' }}>
                 {analysisProgress.stepName}
               </span>
-              <span className="text-blue-600 ml-2">{Math.round(percentage)}%</span>
+              <span className="ml-2 font-semibold" style={{ color: 'var(--accent-primary)' }}>
+                {Math.round(percentage)}%
+              </span>
             </div>
-            <div className="h-1.5 bg-blue-200 rounded-full overflow-hidden">
+            <div
+              className="h-1.5 rounded-full overflow-hidden"
+              style={{ background: 'var(--bg-tertiary)' }}
+            >
               <div
-                className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${percentage}%` }}
+                className="h-full rounded-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${percentage}%`,
+                  background: 'var(--gradient-primary)'
+                }}
               />
             </div>
           </div>
@@ -75,35 +89,53 @@ export function AnalysisProgress({ compact = false }: AnalysisProgressProps) {
   const currentStep = analysisProgress.step;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+    <div
+      className="rounded-xl p-6"
+      style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-subtle)'
+      }}
+    >
       {/* Header with icon and step name */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 bg-blue-100 rounded-lg">
-          <Search className="h-5 w-5 text-blue-600 animate-pulse" />
+      <div className="flex items-center gap-4 mb-5">
+        <div
+          className="p-3 rounded-xl"
+          style={{ background: 'var(--accent-subtle)', border: '1px solid var(--border-accent)' }}
+        >
+          <Search className="h-5 w-5 animate-pulse" style={{ color: 'var(--accent-primary)' }} />
         </div>
         <div className="flex-1">
-          <h3 className="font-semibold text-gray-900">
+          <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
             {analysisProgress.stepName}
           </h3>
         </div>
       </div>
 
       {/* Progress bar */}
-      <div className="mb-4">
-        <div className="flex justify-between text-sm text-gray-600 mb-2">
-          <span>Progreso</span>
-          <span className="font-medium">{Math.round(percentage)}%</span>
+      <div className="mb-5">
+        <div className="flex justify-between text-sm mb-2">
+          <span style={{ color: 'var(--text-tertiary)' }}>Progreso</span>
+          <span className="font-semibold" style={{ color: 'var(--accent-primary)' }}>
+            {Math.round(percentage)}%
+          </span>
         </div>
-        <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+        <div
+          className="h-2 rounded-full overflow-hidden"
+          style={{ background: 'var(--bg-tertiary)' }}
+        >
           <div
-            className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${percentage}%` }}
+            className="h-full rounded-full transition-all duration-500 ease-out"
+            style={{
+              width: `${percentage}%`,
+              background: 'var(--gradient-primary)',
+              boxShadow: 'var(--shadow-glow)'
+            }}
           />
         </div>
       </div>
 
       {/* Time remaining */}
-      <div className="flex items-center gap-2 text-sm text-gray-600 mb-6">
+      <div className="flex items-center gap-2 text-sm mb-6" style={{ color: 'var(--text-tertiary)' }}>
         <Clock className="h-4 w-4" />
         <span>
           {timeRemaining > 0
@@ -121,25 +153,28 @@ export function AnalysisProgress({ compact = false }: AnalysisProgressProps) {
           return (
             <div
               key={index}
-              className={`flex items-center gap-3 py-1.5 px-2 rounded-lg transition-colors ${
-                isCurrent ? 'bg-blue-50' : ''
-              }`}
+              className="flex items-center gap-3 py-2 px-3 rounded-lg transition-all duration-200"
+              style={{
+                background: isCurrent ? 'var(--accent-subtle)' : 'transparent',
+                border: isCurrent ? '1px solid var(--border-accent)' : '1px solid transparent'
+              }}
             >
               {isCompleted ? (
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />
+                <CheckCircle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--success)' }} />
               ) : isCurrent ? (
-                <Loader2 className="h-4 w-4 text-blue-600 animate-spin flex-shrink-0" />
+                <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" style={{ color: 'var(--accent-primary)' }} />
               ) : (
-                <Circle className="h-4 w-4 text-gray-300 flex-shrink-0" />
+                <Circle className="h-4 w-4 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
               )}
               <span
-                className={`text-sm ${
-                  isCompleted
-                    ? 'text-green-700'
+                className={`text-sm ${isCurrent ? 'font-medium' : ''}`}
+                style={{
+                  color: isCompleted
+                    ? 'var(--success)'
                     : isCurrent
-                    ? 'text-blue-700 font-medium'
-                    : 'text-gray-400'
-                }`}
+                    ? 'var(--accent-primary)'
+                    : 'var(--text-muted)'
+                }}
               >
                 {step.name}
               </span>

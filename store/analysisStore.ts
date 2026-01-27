@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { PromptVersion } from '@/types/prompt';
+import type { PromptVersion, PromptAnnotation } from '@/types/prompt';
 import type { FeedbackItem } from '@/types/feedback';
 import type { AnalysisResult, SuggestionState } from '@/types/analysis';
 import type { TokenUsage } from '@/types/tokens';
+import { findTextInPrompt } from '@/lib/utils/textMatcher';
 
 const MAX_UNDO_STACK = 20;
 
@@ -28,10 +29,17 @@ interface AnalysisStore {
   error: string | null;
   undoStack: string[];
   redoStack: string[];
+  // Workspace state
+  selectedSectionId: string | null;
+  autoSaveEnabled: boolean;
+  hasUnsavedChanges: boolean;
+  lastSavedContent: string;
+  // Annotations
+  annotations: PromptAnnotation[];
 
   // Actions - Prompt
   setPrompt: (prompt: string) => void;
-  createVersion: (label?: string) => void;
+  createVersion: (label?: string, changeType?: 'manual' | 'suggestion_applied' | 'auto_save', changeDetails?: { suggestionId?: string; category?: string; sectionTitle?: string }) => void;
   restoreVersion: (versionId: string) => void;
 
   // Actions - Feedback
@@ -61,6 +69,18 @@ interface AnalysisStore {
   canUndo: () => boolean;
   canRedo: () => boolean;
 
+  // Actions - Workspace
+  setSelectedSectionId: (sectionId: string | null) => void;
+  setAutoSaveEnabled: (enabled: boolean) => void;
+  markAsSaved: () => void;
+  saveManualVersion: (label: string) => void;
+
+  // Actions - Annotations
+  addAnnotation: (annotation: Omit<PromptAnnotation, 'id' | 'createdAt' | 'updatedAt' | 'savedAsKnowledge'>) => string;
+  updateAnnotation: (id: string, updates: Partial<PromptAnnotation>) => void;
+  deleteAnnotation: (id: string) => void;
+  getAnnotationsInRange: (startOffset: number, endOffset: number) => PromptAnnotation[];
+
   // Actions - Reset
   reset: () => void;
 }
@@ -77,6 +97,13 @@ const initialState = {
   error: null,
   undoStack: [] as string[],
   redoStack: [] as string[],
+  // Workspace state
+  selectedSectionId: null as string | null,
+  autoSaveEnabled: true,
+  hasUnsavedChanges: false,
+  lastSavedContent: '',
+  // Annotations
+  annotations: [] as PromptAnnotation[],
 };
 
 export const useAnalysisStore = create<AnalysisStore>()(
@@ -86,18 +113,33 @@ export const useAnalysisStore = create<AnalysisStore>()(
 
       // Prompt actions
       setPrompt: (prompt: string) => {
-        set({ currentPrompt: prompt, error: null });
+        const { lastSavedContent } = get();
+        set({
+          currentPrompt: prompt,
+          error: null,
+          hasUnsavedChanges: prompt !== lastSavedContent,
+        });
       },
 
-      createVersion: (label?: string) => {
+      createVersion: (
+        label?: string,
+        changeType?: 'manual' | 'suggestion_applied' | 'auto_save',
+        changeDetails?: { suggestionId?: string; category?: string; sectionTitle?: string }
+      ) => {
         const { currentPrompt, promptHistory } = get();
         const version: PromptVersion = {
           id: crypto.randomUUID(),
           content: currentPrompt,
           timestamp: Date.now(),
           label: label || 'Versión sin nombre',
+          changeType: changeType || 'manual',
+          changeDetails,
         };
-        set({ promptHistory: [...promptHistory, version] });
+        set({
+          promptHistory: [...promptHistory, version],
+          hasUnsavedChanges: false,
+          lastSavedContent: currentPrompt,
+        });
       },
 
       restoreVersion: (versionId: string) => {
@@ -186,24 +228,47 @@ export const useAnalysisStore = create<AnalysisStore>()(
       },
 
       applySuggestion: (sectionId: string, rewrite: string) => {
-        const { currentPrompt, analysis } = get();
+        const { currentPrompt, analysis, autoSaveEnabled } = get();
         if (!analysis) return;
 
         const section = analysis.sections.find((s) => s.id === sectionId);
         if (!section) return;
 
+        // Use text matching instead of indices (more reliable)
+        const match = findTextInPrompt(currentPrompt, section.originalText, {
+          enableFuzzy: true,
+          fuzzyThreshold: 0.85,
+        });
+
+        if (!match.found || match.confidence < 0.85) {
+          console.warn('Could not find original text in prompt:', section.originalText.substring(0, 50));
+          return;
+        }
+
         // Push current state to undo stack before making changes
         get().pushUndo();
 
-        // Replace the original text with the rewrite
-        const before = currentPrompt.substring(0, section.startIndex);
-        const after = currentPrompt.substring(section.endIndex);
+        // Replace the matched text with the rewrite
+        const before = currentPrompt.substring(0, match.startIndex);
+        const after = currentPrompt.substring(match.endIndex);
         const newPrompt = before + rewrite + after;
 
-        set({ currentPrompt: newPrompt, redoStack: [] });
+        set({ currentPrompt: newPrompt, redoStack: [], hasUnsavedChanges: true });
 
-        // Create a version after applying suggestion
-        get().createVersion(`Applied suggestion for: ${section.originalText.substring(0, 30)}...`);
+        // Mark suggestion as accepted
+        get().acceptSuggestion(sectionId);
+
+        // Create a version after applying suggestion (if auto-save enabled)
+        if (autoSaveEnabled) {
+          get().createVersion(
+            `Sugerencia aplicada: ${section.originalText.substring(0, 30)}...`,
+            'suggestion_applied',
+            {
+              suggestionId: sectionId,
+              category: section.category,
+            }
+          );
+        }
       },
 
       // Undo/Redo actions
@@ -255,6 +320,66 @@ export const useAnalysisStore = create<AnalysisStore>()(
         return get().redoStack.length > 0;
       },
 
+      // Workspace actions
+      setSelectedSectionId: (sectionId: string | null) => {
+        set({ selectedSectionId: sectionId });
+      },
+
+      setAutoSaveEnabled: (enabled: boolean) => {
+        set({ autoSaveEnabled: enabled });
+      },
+
+      markAsSaved: () => {
+        const { currentPrompt } = get();
+        set({ hasUnsavedChanges: false, lastSavedContent: currentPrompt });
+      },
+
+      saveManualVersion: (label: string) => {
+        get().createVersion(label, 'manual');
+      },
+
+      // Annotation actions
+      addAnnotation: (annotationData) => {
+        const id = crypto.randomUUID();
+        const annotation: PromptAnnotation = {
+          ...annotationData,
+          id,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          savedAsKnowledge: false,
+        };
+
+        set((state) => ({
+          annotations: [...state.annotations, annotation],
+        }));
+
+        return id;
+      },
+
+      updateAnnotation: (id, updates) => {
+        set((state) => ({
+          annotations: state.annotations.map((a) =>
+            a.id === id ? { ...a, ...updates, updatedAt: Date.now() } : a
+          ),
+        }));
+      },
+
+      deleteAnnotation: (id) => {
+        set((state) => ({
+          annotations: state.annotations.filter((a) => a.id !== id),
+        }));
+      },
+
+      getAnnotationsInRange: (startOffset, endOffset) => {
+        const { annotations } = get();
+        return annotations.filter(
+          (a) =>
+            (a.startOffset >= startOffset && a.startOffset < endOffset) ||
+            (a.endOffset > startOffset && a.endOffset <= endOffset) ||
+            (a.startOffset <= startOffset && a.endOffset >= endOffset)
+        );
+      },
+
       // Reset
       reset: () => {
         set(initialState);
@@ -268,6 +393,9 @@ export const useAnalysisStore = create<AnalysisStore>()(
         feedbackItems: state.feedbackItems,
         analysis: state.analysis,
         tokenUsage: state.tokenUsage,
+        autoSaveEnabled: state.autoSaveEnabled,
+        lastSavedContent: state.lastSavedContent,
+        annotations: state.annotations,
       }),
     }
   )

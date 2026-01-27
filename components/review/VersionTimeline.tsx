@@ -29,11 +29,21 @@ export function VersionTimeline() {
 
   if (versions.length === 0) {
     return (
-      <div className="p-4 text-center text-gray-500">
-        <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
-        <p className="text-sm">No hay versiones guardadas</p>
-        <p className="text-xs text-gray-400 mt-1">
-          Las versiones se crean al aplicar cambios
+      <div
+        className="h-full flex flex-col items-center justify-center p-6 text-center"
+        style={{ background: 'var(--bg-secondary)' }}
+      >
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center mb-4"
+          style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
+        >
+          <GitBranch className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
+        </div>
+        <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+          No hay versiones guardadas
+        </h3>
+        <p className="text-xs max-w-xs" style={{ color: 'var(--text-tertiary)' }}>
+          Las versiones se crean automáticamente al aplicar cambios
         </p>
       </div>
     );
@@ -62,32 +72,38 @@ export function VersionTimeline() {
   const getChangeIcon = (type: string) => {
     switch (type) {
       case 'suggestion_applied':
-        return <Check className="h-3 w-3 text-green-500" />;
+        return <Check className="h-3 w-3" style={{ color: 'var(--success)' }} />;
       case 'suggestion_rejected':
-        return <X className="h-3 w-3 text-red-500" />;
+        return <X className="h-3 w-3" style={{ color: 'var(--error)' }} />;
       case 'manual_edit':
-        return <Edit className="h-3 w-3 text-blue-500" />;
+        return <Edit className="h-3 w-3" style={{ color: 'var(--info)' }} />;
       default:
         return null;
     }
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-200 bg-gray-50">
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-secondary)' }}>
+      <div
+        className="flex-shrink-0 px-4 py-3 border-b"
+        style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-subtle)' }}
+      >
         <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4 text-gray-600" />
-          <h3 className="font-semibold text-gray-900">Historial de Versiones</h3>
-          <span className="text-xs px-2 py-0.5 bg-gray-200 text-gray-600 rounded-full">
-            {versions.length}
-          </span>
+          <GitBranch className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+          <h3 className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
+            Historial de Versiones
+          </h3>
+          <span className="badge badge-accent">{versions.length}</span>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         <div className="relative">
           {/* Timeline line */}
-          <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" />
+          <div
+            className="absolute left-6 top-0 bottom-0 w-0.5"
+            style={{ background: 'var(--border-subtle)' }}
+          />
 
           {sortedVersions.map((version, index) => {
             const isCurrent = isCurrentVersion(version);
@@ -98,19 +114,30 @@ export function VersionTimeline() {
               <div key={version.id} className="relative">
                 {/* Timeline dot */}
                 <div
-                  className={`absolute left-4 w-5 h-5 rounded-full border-2 flex items-center justify-center z-10 ${
-                    isCurrent
-                      ? 'bg-blue-500 border-blue-500'
+                  className="absolute left-4 w-5 h-5 rounded-full border-2 flex items-center justify-center z-10"
+                  style={{
+                    background: isCurrent
+                      ? 'var(--accent-primary)'
                       : index === 0
-                      ? 'bg-green-500 border-green-500'
-                      : 'bg-white border-gray-300'
-                  }`}
+                      ? 'var(--success)'
+                      : 'var(--bg-elevated)',
+                    borderColor: isCurrent
+                      ? 'var(--accent-primary)'
+                      : index === 0
+                      ? 'var(--success)'
+                      : 'var(--border-default)'
+                  }}
                 >
-                  {isCurrent && <div className="w-2 h-2 bg-white rounded-full" />}
+                  {isCurrent && <div className="w-2 h-2 rounded-full" style={{ background: '#0a0e14' }} />}
                 </div>
 
                 {/* Content */}
-                <div className={`ml-12 mr-4 py-3 ${index !== sortedVersions.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                <div
+                  className="ml-12 mr-4 py-3"
+                  style={{
+                    borderBottom: index !== sortedVersions.length - 1 ? '1px solid var(--border-subtle)' : 'none'
+                  }}
+                >
                   <div
                     className="cursor-pointer"
                     onClick={() => setExpandedVersionId(isExpanded ? null : version.id)}
@@ -118,16 +145,23 @@ export function VersionTimeline() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <p className="text-sm font-medium text-gray-900 truncate">
+                          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                             {version.label}
                           </p>
                           {isCurrent && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                              style={{
+                                background: 'var(--accent-subtle)',
+                                color: 'var(--accent-primary)',
+                                border: '1px solid var(--border-accent)'
+                              }}
+                            >
                               actual
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
                           <Clock className="h-3 w-3" />
                           <span>
                             {formatDistanceToNow(version.timestamp, {
@@ -136,7 +170,7 @@ export function VersionTimeline() {
                             })}
                           </span>
                           {version.changes && version.changes.length > 0 && (
-                            <span className="text-gray-400">
+                            <span style={{ color: 'var(--text-muted)' }}>
                               · {version.changes.length} cambios
                             </span>
                           )}
@@ -144,9 +178,9 @@ export function VersionTimeline() {
                       </div>
                       <div className="flex items-center gap-1">
                         {isExpanded ? (
-                          <ChevronDown className="h-4 w-4 text-gray-400" />
+                          <ChevronDown className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
                         ) : (
-                          <ChevronRight className="h-4 w-4 text-gray-400" />
+                          <ChevronRight className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
                         )}
                       </div>
                     </div>
@@ -161,13 +195,14 @@ export function VersionTimeline() {
                           {version.changes.map((change, i) => (
                             <div
                               key={i}
-                              className="flex items-start gap-2 text-xs p-2 bg-gray-50 rounded"
+                              className="flex items-start gap-2 text-xs p-2 rounded-lg"
+                              style={{ background: 'var(--bg-tertiary)' }}
                             >
                               {getChangeIcon(change.type)}
                               <div className="flex-1 min-w-0">
-                                <p className="text-gray-700">{change.description}</p>
+                                <p style={{ color: 'var(--text-secondary)' }}>{change.description}</p>
                                 {change.justification && (
-                                  <p className="text-gray-500 mt-0.5 italic">
+                                  <p className="mt-0.5 italic" style={{ color: 'var(--text-tertiary)' }}>
                                     "{change.justification}"
                                   </p>
                                 )}
@@ -181,19 +216,24 @@ export function VersionTimeline() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handlePreview(version)}
-                          className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-                            isPreviewing
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors"
+                          style={{
+                            background: isPreviewing ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+                            color: isPreviewing ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                            border: `1px solid ${isPreviewing ? 'var(--border-accent)' : 'var(--border-subtle)'}`
+                          }}
                         >
                           <Eye className="h-3 w-3" />
-                          {isPreviewing ? 'Ocultando...' : 'Vista previa'}
+                          {isPreviewing ? 'Ocultar' : 'Vista previa'}
                         </button>
                         {!isCurrent && (
                           <button
                             onClick={() => handleRestore(version)}
-                            className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
+                            style={{
+                              background: 'var(--accent-primary)',
+                              color: '#0a0e14'
+                            }}
                           >
                             <RotateCcw className="h-3 w-3" />
                             Restaurar
@@ -203,11 +243,23 @@ export function VersionTimeline() {
 
                       {/* Preview */}
                       {isPreviewing && (
-                        <div className="bg-white border border-gray-200 rounded p-3">
-                          <p className="text-xs font-medium text-gray-500 mb-2">
+                        <div
+                          className="rounded-xl p-3"
+                          style={{
+                            background: 'var(--bg-primary)',
+                            border: '1px solid var(--border-subtle)'
+                          }}
+                        >
+                          <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
                             Vista previa del contenido:
                           </p>
-                          <pre className="text-xs text-gray-700 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">
+                          <pre
+                            className="text-xs font-mono whitespace-pre-wrap max-h-40 overflow-y-auto p-2 rounded-lg"
+                            style={{
+                              background: 'var(--bg-tertiary)',
+                              color: 'var(--text-secondary)'
+                            }}
+                          >
                             {version.content.substring(0, 500)}
                             {version.content.length > 500 && '...'}
                           </pre>

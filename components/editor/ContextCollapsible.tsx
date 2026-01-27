@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
-import { fileToBase64, compressImage, formatFileSize } from '@/lib/utils/image';
+import { fileToBase64, compressImage } from '@/lib/utils/image';
 import { validateBase64Image } from '@/lib/utils/validation';
 import type { ImageFeedback, TextFeedback } from '@/types/feedback';
 import {
@@ -90,61 +90,85 @@ export function ContextCollapsible() {
   };
 
   return (
-    <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+    <div
+      className="rounded-xl overflow-hidden transition-all duration-200"
+      style={{
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-subtle)'
+      }}
+    >
       {/* Header - Always visible */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-4 py-3 transition-all duration-200 hover:bg-[var(--accent-subtle)]"
       >
-        <div className="flex items-center gap-2">
-          <Paperclip className="h-4 w-4 text-gray-500" />
-          <span className="text-sm font-medium text-gray-700">
+        <div className="flex items-center gap-3">
+          <Paperclip className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
             Agregar contexto
           </span>
           {totalItems > 0 && (
-            <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
+            <span className="badge badge-accent">
               {totalItems} {totalItems === 1 ? 'item' : 'items'}
             </span>
           )}
         </div>
         {isOpen ? (
-          <ChevronUp className="h-4 w-4 text-gray-400" />
+          <ChevronUp className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
         ) : (
-          <ChevronDown className="h-4 w-4 text-gray-400" />
+          <ChevronDown className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
         )}
       </button>
 
       {/* Collapsible Content */}
       {isOpen && (
-        <div className="border-t border-gray-200">
+        <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
           {/* Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b" style={{ borderColor: 'var(--border-subtle)' }}>
             <button
               onClick={() => setActiveTab('images')}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-all duration-200 relative ${
                 activeTab === 'images'
-                  ? 'text-blue-600 border-b-2 border-blue-600 -mb-px'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? ''
+                  : 'hover:bg-[var(--accent-subtle)]'
               }`}
+              style={{
+                color: activeTab === 'images' ? 'var(--accent-primary)' : 'var(--text-secondary)'
+              }}
             >
-              <ImageIcon className="h-4 w-4 inline mr-1.5" />
+              <ImageIcon className="h-4 w-4 inline mr-2" />
               Screenshots
               {images.length > 0 && (
-                <span className="ml-1.5 text-xs">({images.length})</span>
+                <span className="ml-2 text-xs">({images.length})</span>
+              )}
+              {activeTab === 'images' && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full"
+                  style={{ background: 'var(--accent-primary)' }}
+                />
               )}
             </button>
             <button
               onClick={() => setActiveTab('text')}
-              className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-all duration-200 relative ${
                 activeTab === 'text'
-                  ? 'text-blue-600 border-b-2 border-blue-600 -mb-px'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? ''
+                  : 'hover:bg-[var(--accent-subtle)]'
               }`}
+              style={{
+                color: activeTab === 'text' ? 'var(--accent-primary)' : 'var(--text-secondary)'
+              }}
             >
-              <MessageSquare className="h-4 w-4 inline mr-1.5" />
+              <MessageSquare className="h-4 w-4 inline mr-2" />
               Feedback
               {textItems.length > 0 && (
-                <span className="ml-1.5 text-xs">({textItems.length})</span>
+                <span className="ml-2 text-xs">({textItems.length})</span>
+              )}
+              {activeTab === 'text' && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full"
+                  style={{ background: 'var(--accent-primary)' }}
+                />
               )}
             </button>
           </div>
@@ -164,16 +188,16 @@ export function ContextCollapsible() {
                     e.preventDefault();
                     setIsDragging(false);
                   }}
-                  className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
-                    isDragging
-                      ? 'border-blue-400 bg-blue-50'
-                      : 'border-gray-300 hover:border-gray-400'
-                  }`}
+                  className="border-2 border-dashed rounded-xl p-6 text-center transition-all duration-200"
+                  style={{
+                    borderColor: isDragging ? 'var(--accent-primary)' : 'var(--border-default)',
+                    background: isDragging ? 'var(--accent-subtle)' : 'var(--bg-tertiary)'
+                  }}
                 >
-                  <Upload className="mx-auto h-8 w-8 text-gray-400" />
-                  <p className="mt-1 text-sm text-gray-600">
+                  <Upload className="mx-auto h-8 w-8 mb-2" style={{ color: 'var(--text-muted)' }} />
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                     Arrastra imágenes o{' '}
-                    <label className="text-blue-600 hover:text-blue-700 cursor-pointer">
+                    <label style={{ color: 'var(--accent-primary)', cursor: 'pointer' }}>
                       selecciona
                       <input
                         type="file"
@@ -187,7 +211,7 @@ export function ContextCollapsible() {
                 </div>
 
                 {error && (
-                  <p className="text-sm text-red-600">{error}</p>
+                  <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>
                 )}
 
                 {/* Image Previews */}
@@ -196,7 +220,8 @@ export function ContextCollapsible() {
                     {images.map((image) => (
                       <div
                         key={image.id}
-                        className="relative group aspect-video bg-gray-100 rounded overflow-hidden"
+                        className="relative group aspect-video rounded-lg overflow-hidden"
+                        style={{ background: 'var(--bg-tertiary)' }}
                       >
                         <img
                           src={image.url}
@@ -205,11 +230,15 @@ export function ContextCollapsible() {
                         />
                         <button
                           onClick={() => removeFeedback(image.id)}
-                          className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="absolute top-1 right-1 p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-200"
+                          style={{ background: 'var(--error)', color: 'white' }}
                         >
                           <X className="h-3 w-3" />
                         </button>
-                        <div className="absolute bottom-0 left-0 right-0 px-1 py-0.5 bg-black/50 text-white text-[10px] truncate">
+                        <div
+                          className="absolute bottom-0 left-0 right-0 px-2 py-1 text-[10px] truncate"
+                          style={{ background: 'rgba(0,0,0,0.7)', color: 'var(--text-primary)' }}
+                        >
                           {image.name}
                         </div>
                       </div>
@@ -225,7 +254,7 @@ export function ContextCollapsible() {
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     placeholder="Pega feedback de usuarios, comentarios, o contexto adicional..."
-                    className="w-full h-24 p-2 text-sm border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="input w-full h-24 resize-none"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && e.metaKey) {
                         handleAddText();
@@ -235,9 +264,9 @@ export function ContextCollapsible() {
                   <button
                     onClick={handleAddText}
                     disabled={!textInput.trim()}
-                    className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Plus className="h-3.5 w-3.5" />
+                    <Plus className="h-4 w-4" />
                     Agregar
                   </button>
                 </div>
@@ -248,16 +277,21 @@ export function ContextCollapsible() {
                     {textItems.map((item) => (
                       <div
                         key={item.id}
-                        className="flex items-start gap-2 p-2 bg-gray-50 rounded text-sm"
+                        className="flex items-start gap-3 p-3 rounded-lg"
+                        style={{ background: 'var(--bg-tertiary)' }}
                       >
-                        <p className="flex-1 text-gray-700 line-clamp-2">
+                        <p
+                          className="flex-1 text-sm line-clamp-2"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
                           {item.content}
                         </p>
                         <button
                           onClick={() => removeFeedback(item.id)}
-                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                          className="p-1 rounded-md transition-all duration-200 hover:bg-[var(--error-subtle)]"
+                          style={{ color: 'var(--text-muted)' }}
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-4 w-4" />
                         </button>
                       </div>
                     ))}

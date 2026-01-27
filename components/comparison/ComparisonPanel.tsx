@@ -27,14 +27,17 @@ export function ComparisonPanel() {
   const { compare, canCompare, isComparing, comparisonResult, error } = usePromptComparison();
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" style={{ background: 'var(--bg-secondary)' }}>
       {/* Editors Side by Side */}
-      <div className="flex-1 grid grid-cols-2 gap-4 p-4 min-h-0">
+      <div className="flex-1 grid grid-cols-2 gap-4 p-4 min-h-0 relative">
         {/* Original Prompt */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-t-lg border border-b-0 border-gray-200">
-            <span className="text-sm font-medium text-gray-700">Original</span>
-            <span className="text-xs text-gray-500">
+          <div
+            className="flex items-center justify-between px-4 py-2.5 rounded-t-xl border border-b-0"
+            style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-subtle)' }}
+          >
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Original</span>
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
               {originalPrompt.length} caracteres
             </span>
           </div>
@@ -42,24 +45,41 @@ export function ComparisonPanel() {
             value={originalPrompt}
             onChange={(e) => setOriginalPrompt(e.target.value)}
             placeholder="Pega el prompt original aquí..."
-            className="flex-1 w-full p-3 font-mono text-sm border border-gray-200 rounded-b-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 w-full p-4 font-mono text-sm rounded-b-xl resize-none focus:outline-none"
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-subtle)',
+              color: 'var(--text-primary)',
+              caretColor: 'var(--accent-primary)'
+            }}
           />
         </div>
 
         {/* Swap Button */}
         <button
           onClick={swapPrompts}
-          className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 p-2 bg-white border border-gray-200 rounded-full shadow-md hover:bg-gray-50 transition-colors"
+          className="absolute left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 z-10 p-3 rounded-full transition-all duration-200"
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            boxShadow: 'var(--shadow-md)'
+          }}
           title="Intercambiar prompts"
         >
-          <ArrowLeftRight className="h-4 w-4 text-gray-600" />
+          <ArrowLeftRight className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
         </button>
 
         {/* Modified Prompt */}
         <div className="flex flex-col min-h-0">
-          <div className="flex items-center justify-between px-3 py-2 bg-blue-50 rounded-t-lg border border-b-0 border-blue-200">
-            <span className="text-sm font-medium text-blue-700">Modificado</span>
-            <span className="text-xs text-blue-500">
+          <div
+            className="flex items-center justify-between px-4 py-2.5 rounded-t-xl border border-b-0"
+            style={{
+              background: 'var(--accent-subtle)',
+              borderColor: 'var(--border-accent)'
+            }}
+          >
+            <span className="text-sm font-medium" style={{ color: 'var(--accent-primary)' }}>Modificado</span>
+            <span className="text-xs" style={{ color: 'var(--accent-secondary)' }}>
               {modifiedPrompt.length} caracteres
             </span>
           </div>
@@ -67,7 +87,13 @@ export function ComparisonPanel() {
             value={modifiedPrompt}
             onChange={(e) => setModifiedPrompt(e.target.value)}
             placeholder="Pega el prompt modificado aquí..."
-            className="flex-1 w-full p-3 font-mono text-sm border border-blue-200 rounded-b-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 w-full p-4 font-mono text-sm rounded-b-xl resize-none focus:outline-none"
+            style={{
+              background: 'var(--bg-primary)',
+              border: '1px solid var(--border-accent)',
+              color: 'var(--text-primary)',
+              caretColor: 'var(--accent-primary)'
+            }}
           />
         </div>
       </div>
@@ -77,7 +103,7 @@ export function ComparisonPanel() {
         <button
           onClick={compare}
           disabled={!canCompare || isComparing}
-          className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all font-semibold shadow-md hover:shadow-lg"
+          className="w-full flex items-center justify-center gap-3 px-8 py-4 btn-primary rounded-xl font-semibold text-base disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
         >
           {isComparing ? (
             <>
@@ -93,18 +119,30 @@ export function ComparisonPanel() {
         </button>
 
         {error && (
-          <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-            <p className="text-sm text-red-600">{error}</p>
+          <div
+            className="mt-3 rounded-xl p-4 flex items-start gap-3"
+            style={{
+              background: 'var(--error-subtle)',
+              border: '1px solid rgba(248, 81, 73, 0.2)'
+            }}
+          >
+            <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{error}</p>
           </div>
         )}
       </div>
 
       {/* Results */}
       {comparisonResult && (
-        <div className="flex-shrink-0 border-t border-gray-200 p-4 bg-gray-50 max-h-80 overflow-y-auto">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-blue-600" />
+        <div
+          className="flex-shrink-0 border-t p-4 max-h-80 overflow-y-auto"
+          style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-subtle)' }}
+        >
+          <h3
+            className="text-sm font-semibold mb-4 flex items-center gap-2"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <BarChart3 className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
             Resultados de Comparación
           </h3>
 
@@ -124,14 +162,22 @@ export function ComparisonPanel() {
 
           {/* Token Comparison */}
           {comparisonResult.tokenDifference && (
-            <div className="mt-4 p-3 bg-white rounded-lg border border-gray-200">
-              <div className="flex items-center gap-2 mb-2">
-                <Coins className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-medium text-gray-900">Uso de Tokens</span>
+            <div
+              className="mt-4 p-4 rounded-xl"
+              style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-subtle)'
+              }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Coins className="h-4 w-4" style={{ color: '#a855f7' }} />
+                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                  Uso de Tokens
+                </span>
               </div>
 
               <div className="flex items-center justify-between text-sm">
-                <div className="text-gray-600">
+                <div style={{ color: 'var(--text-secondary)' }}>
                   {comparisonResult.originalTokens &&
                     formatTokens(comparisonResult.originalTokens.totalTokens)}{' '}
                   → {comparisonResult.modifiedTokens &&
@@ -139,20 +185,21 @@ export function ComparisonPanel() {
                 </div>
 
                 <div
-                  className={`flex items-center gap-1 ${
-                    comparisonResult.tokenDifference.totalDiff < 0
-                      ? 'text-green-600'
+                  className="flex items-center gap-1"
+                  style={{
+                    color: comparisonResult.tokenDifference.totalDiff < 0
+                      ? 'var(--success)'
                       : comparisonResult.tokenDifference.totalDiff > 0
-                      ? 'text-red-600'
-                      : 'text-gray-500'
-                  }`}
+                      ? 'var(--error)'
+                      : 'var(--text-muted)'
+                  }}
                 >
                   {comparisonResult.tokenDifference.totalDiff < 0 ? (
                     <ArrowDown className="h-3 w-3" />
                   ) : comparisonResult.tokenDifference.totalDiff > 0 ? (
                     <ArrowUp className="h-3 w-3" />
                   ) : null}
-                  <span className="font-medium">
+                  <span className="font-semibold">
                     {comparisonResult.tokenDifference.percentageChange > 0 ? '+' : ''}
                     {comparisonResult.tokenDifference.percentageChange}%
                   </span>
