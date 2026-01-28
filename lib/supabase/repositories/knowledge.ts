@@ -51,6 +51,8 @@ export const knowledgeRepository = {
       ...mapAppKnowledgeEntryToDbInsert(entry, deviceId),
     };
 
+    console.log('Creating knowledge entry with data:', { dbEntry, deviceId });
+
     const { data, error } = await supabase
       .from('knowledge_entries')
       .insert(dbEntry)
@@ -58,7 +60,14 @@ export const knowledgeRepository = {
       .single();
 
     if (error) {
-      console.error('Error creating knowledge entry with ID:', error);
+      console.error('Error creating knowledge entry with ID:', {
+        error,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        dbEntry,
+      });
       return null;
     }
 

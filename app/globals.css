@@ -461,8 +461,15 @@ textarea {
 
 /* Custom highlight for editor */
 .editor-highlight {
-  background: linear-gradient(90deg, var(--accent-subtle), transparent);
+  background: linear-gradient(90deg, rgba(0, 212, 170, 0.12), transparent);
   border-left: 2px solid var(--accent-primary);
+  margin-left: -2px;
+}
+
+/* Editor line height consistency */
+.editor-line {
+  height: 22px;
+  line-height: 22px;
 }
 
 /* Severity colors for inline usage */

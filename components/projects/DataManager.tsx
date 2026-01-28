@@ -93,24 +93,25 @@ export function DataManager({ onClose }: DataManagerProps) {
   return (
     <div className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-900">Gestión de Datos</h3>
+        <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Gestión de Datos</h3>
         <button
           onClick={onClose}
-          className="p-1 text-gray-400 hover:text-gray-600"
+          className="p-1 rounded transition-colors hover:bg-[var(--bg-tertiary)]"
+          style={{ color: 'var(--text-muted)' }}
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
       {/* Toggle between Export and Import */}
-      <div className="flex gap-1 mb-4">
+      <div className="flex gap-1 p-1 rounded-lg mb-4" style={{ background: 'var(--bg-tertiary)' }}>
         <button
           onClick={() => setImportMode(false)}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-            !importMode
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors"
+          style={{
+            background: !importMode ? 'var(--accent-glow)' : 'transparent',
+            color: !importMode ? 'var(--accent-primary)' : 'var(--text-secondary)',
+          }}
         >
           <Download className="h-4 w-4" />
           Exportar
@@ -120,11 +121,11 @@ export function DataManager({ onClose }: DataManagerProps) {
             setImportMode(true);
             setImportResult(null);
           }}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
-            importMode
-              ? 'bg-green-100 text-green-700'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-          }`}
+          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md transition-colors"
+          style={{
+            background: importMode ? 'var(--success-subtle)' : 'transparent',
+            color: importMode ? 'var(--success)' : 'var(--text-secondary)',
+          }}
         >
           <Upload className="h-4 w-4" />
           Importar
@@ -134,19 +135,20 @@ export function DataManager({ onClose }: DataManagerProps) {
       {!importMode ? (
         /* Export Options */
         <div className="space-y-2">
-          <p className="text-xs text-gray-500 mb-3">
+          <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
             Exporta tus datos como archivo JSON para compartir o backup.
           </p>
 
           <button
             onClick={() => handleExport('current')}
             disabled={!currentProject}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
           >
-            <FolderOpen className="h-4 w-4 text-blue-500" />
+            <FolderOpen className="h-4 w-4" style={{ color: 'var(--info)' }} />
             <div className="flex-1">
-              <p className="font-medium text-gray-900">Proyecto actual</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>Proyecto actual</p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {currentProject ? currentProject.name : 'Ninguno seleccionado'}
               </p>
             </div>
@@ -155,12 +157,13 @@ export function DataManager({ onClose }: DataManagerProps) {
           <button
             onClick={() => handleExport('all')}
             disabled={projects.length === 0}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
           >
-            <Database className="h-4 w-4 text-purple-500" />
+            <Database className="h-4 w-4" style={{ color: '#a78bfa' }} />
             <div className="flex-1">
-              <p className="font-medium text-gray-900">Todos los proyectos</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>Todos los proyectos</p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {projects.length} proyecto{projects.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -169,12 +172,13 @@ export function DataManager({ onClose }: DataManagerProps) {
           <button
             onClick={() => handleExport('knowledge')}
             disabled={entries.length === 0}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
           >
-            <BookOpen className="h-4 w-4 text-green-500" />
+            <BookOpen className="h-4 w-4" style={{ color: 'var(--success)' }} />
             <div className="flex-1">
-              <p className="font-medium text-gray-900">Base de Conocimiento</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>Base de Conocimiento</p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 {entries.length} entrada{entries.length !== 1 ? 's' : ''}
               </p>
             </div>
@@ -182,12 +186,13 @@ export function DataManager({ onClose }: DataManagerProps) {
 
           <button
             onClick={() => handleExport('full')}
-            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm rounded-lg transition-colors"
+            style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}
           >
-            <HardDrive className="h-4 w-4 text-orange-500" />
+            <HardDrive className="h-4 w-4" style={{ color: 'var(--warning)' }} />
             <div className="flex-1">
-              <p className="font-medium text-gray-900">Backup Completo</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-medium" style={{ color: 'var(--text-primary)' }}>Backup Completo</p>
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 Todo: proyectos, knowledge, decisiones
               </p>
             </div>
@@ -196,30 +201,32 @@ export function DataManager({ onClose }: DataManagerProps) {
       ) : (
         /* Import Options */
         <div className="space-y-4">
-          <p className="text-xs text-gray-500">
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Importa datos desde un archivo JSON exportado previamente.
           </p>
 
           {/* Import Options */}
-          <div className="space-y-2 p-3 bg-gray-50 rounded-lg">
-            <p className="text-xs font-medium text-gray-700">Opciones:</p>
-            <label className="flex items-center gap-2 text-sm">
+          <div className="space-y-2 p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Opciones:</p>
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={overwriteExisting}
                 onChange={(e) => setOverwriteExisting(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="rounded"
+                style={{ accentColor: 'var(--accent-primary)' }}
               />
-              <span className="text-gray-700">Sobrescribir existentes</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Sobrescribir existentes</span>
             </label>
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"
                 checked={mergeVersions}
                 onChange={(e) => setMergeVersions(e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                className="rounded"
+                style={{ accentColor: 'var(--accent-primary)' }}
               />
-              <span className="text-gray-700">Fusionar versiones de proyectos</span>
+              <span style={{ color: 'var(--text-secondary)' }}>Fusionar versiones de proyectos</span>
             </label>
           </div>
 
@@ -235,15 +242,19 @@ export function DataManager({ onClose }: DataManagerProps) {
             />
             <label
               htmlFor="import-file"
-              className={`w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-colors ${
-                importing
-                  ? 'bg-gray-100 border-gray-300 text-gray-500'
-                  : 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
-              }`}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium rounded-lg border-2 border-dashed cursor-pointer transition-colors"
+              style={{
+                background: importing ? 'var(--bg-tertiary)' : 'var(--success-subtle)',
+                borderColor: importing ? 'var(--border-default)' : 'rgba(63, 185, 80, 0.3)',
+                color: importing ? 'var(--text-muted)' : 'var(--success)',
+              }}
             >
               {importing ? (
                 <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-green-600 border-t-transparent" />
+                  <div
+                    className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent"
+                    style={{ borderColor: 'var(--success)', borderTopColor: 'transparent' }}
+                  />
                   Importando...
                 </>
               ) : (
@@ -258,27 +269,26 @@ export function DataManager({ onClose }: DataManagerProps) {
           {/* Import Result */}
           {importResult && (
             <div
-              className={`p-3 rounded-lg flex items-start gap-2 ${
-                importResult.success
-                  ? 'bg-green-50 border border-green-200'
-                  : 'bg-red-50 border border-red-200'
-              }`}
+              className="p-3 rounded-lg flex items-start gap-2"
+              style={{
+                background: importResult.success ? 'var(--success-subtle)' : 'var(--error-subtle)',
+                border: `1px solid ${importResult.success ? 'rgba(63, 185, 80, 0.2)' : 'rgba(248, 81, 73, 0.2)'}`,
+              }}
             >
               {importResult.success ? (
-                <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+                <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--success)' }} />
               ) : (
-                <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
+                <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" style={{ color: 'var(--error)' }} />
               )}
               <div>
                 <p
-                  className={`text-sm font-medium ${
-                    importResult.success ? 'text-green-800' : 'text-red-800'
-                  }`}
+                  className="text-sm font-medium"
+                  style={{ color: importResult.success ? 'var(--success)' : 'var(--error)' }}
                 >
                   {importResult.message}
                 </p>
                 {importResult.details && (
-                  <p className="text-xs text-green-600 mt-1">
+                  <p className="text-xs mt-1" style={{ color: 'var(--success)' }}>
                     {importResult.details.added} agregados, {importResult.details.updated} actualizados, {importResult.details.skipped} omitidos
                   </p>
                 )}

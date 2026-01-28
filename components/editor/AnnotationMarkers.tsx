@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, forwardRef } from 'react';
 import type { PromptAnnotation } from '@/types/prompt';
 import { MessageSquare, Lightbulb, AlertTriangle, HelpCircle } from 'lucide-react';
 
@@ -48,46 +48,87 @@ interface AnnotationPosition {
   endCol: number;
 }
 
-export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }: AnnotationMarkersProps) {
+// Find the actual position of annotation text, handling cases where prompt has changed
+function findAnnotationPosition(
+  annotation: PromptAnnotation,
+  promptText: string
+): { startOffset: number; endOffset: number } | null {
+  // First, check if the stored offsets still point to the correct text
+  const textAtOffset = promptText.substring(annotation.startOffset, annotation.endOffset);
+  if (textAtOffset === annotation.selectedText) {
+    return { startOffset: annotation.startOffset, endOffset: annotation.endOffset };
+  }
+
+  // Text has shifted - search for the selectedText in the prompt
+  const searchText = annotation.selectedText;
+  const index = promptText.indexOf(searchText);
+
+  if (index !== -1) {
+    return { startOffset: index, endOffset: index + searchText.length };
+  }
+
+  // If exact match fails, try to find it near the original position (within ~500 chars)
+  const searchStart = Math.max(0, annotation.startOffset - 500);
+  const searchEnd = Math.min(promptText.length, annotation.endOffset + 500);
+  const searchWindow = promptText.substring(searchStart, searchEnd);
+  const indexInWindow = searchWindow.indexOf(searchText);
+
+  if (indexInWindow !== -1) {
+    const actualStart = searchStart + indexInWindow;
+    return { startOffset: actualStart, endOffset: actualStart + searchText.length };
+  }
+
+  // Annotation text no longer exists in prompt
+  return null;
+}
+
+// Convert character offset to line/column position
+function offsetToLineCol(
+  offset: number,
+  lines: string[]
+): { line: number; col: number } | null {
+  let charCount = 0;
+
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const lineLength = lines[lineIdx].length + 1; // +1 for newline
+
+    if (charCount + lineLength > offset) {
+      return { line: lineIdx, col: offset - charCount };
+    }
+
+    charCount += lineLength;
+  }
+
+  // Offset is at or after the end
+  if (offset <= charCount) {
+    return { line: lines.length - 1, col: lines[lines.length - 1].length };
+  }
+
+  return null;
+}
+
+export const AnnotationMarkers = forwardRef<HTMLDivElement, AnnotationMarkersProps>(
+  function AnnotationMarkers({ annotations, promptText, onAnnotationClick }, ref) {
   // Calculate line/column positions for each annotation
   const annotationPositions = useMemo(() => {
     const lines = promptText.split('\n');
     const positions: AnnotationPosition[] = [];
 
     for (const annotation of annotations) {
-      let charCount = 0;
-      let startLine = 0;
-      let startCol = 0;
-      let endLine = 0;
-      let endCol = 0;
-      let foundStart = false;
-      let foundEnd = false;
+      // Find the actual position (handles text shifts)
+      const actualPosition = findAnnotationPosition(annotation, promptText);
+      if (!actualPosition) continue;
 
-      for (let lineIdx = 0; lineIdx < lines.length && !foundEnd; lineIdx++) {
-        const lineLength = lines[lineIdx].length + 1; // +1 for newline
+      const startPos = offsetToLineCol(actualPosition.startOffset, lines);
+      const endPos = offsetToLineCol(actualPosition.endOffset, lines);
 
-        if (!foundStart && charCount + lineLength > annotation.startOffset) {
-          startLine = lineIdx;
-          startCol = annotation.startOffset - charCount;
-          foundStart = true;
-        }
-
-        if (foundStart && charCount + lineLength >= annotation.endOffset) {
-          endLine = lineIdx;
-          endCol = annotation.endOffset - charCount;
-          foundEnd = true;
-        }
-
-        charCount += lineLength;
-      }
-
-      if (foundStart && foundEnd) {
+      if (startPos && endPos) {
         positions.push({
           annotation,
-          startLine,
-          endLine,
-          startCol,
-          endCol,
+          startLine: startPos.line,
+          endLine: endPos.line,
+          startCol: startPos.col,
+          endCol: endPos.col,
         });
       }
     }
@@ -100,12 +141,15 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
   const lineHeight = 20;
   const charWidth = 8.4; // Approximate width of monospace char at 14px
   const paddingLeft = 16; // px-4 = 16px
+  const paddingTop = 12; // py-3 = 12px
 
   return (
-    <div className="absolute inset-0 pointer-events-none overflow-hidden py-3">
+    <div ref={ref} className="absolute inset-0 pointer-events-none overflow-hidden">
       {annotationPositions.map((pos) => {
         const colors = getAnnotationColor(pos.annotation.type);
         const isSingleLine = pos.startLine === pos.endLine;
+        // Calculate top position including padding offset
+        const topOffset = paddingTop + (pos.startLine * lineHeight);
 
         return (
           <div key={pos.annotation.id}>
@@ -115,9 +159,9 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
               <div
                 className="absolute pointer-events-auto cursor-pointer transition-all hover:opacity-80"
                 style={{
-                  top: `${pos.startLine * lineHeight}px`,
+                  top: `${topOffset}px`,
                   left: `${paddingLeft + pos.startCol * charWidth}px`,
-                  width: `${(pos.endCol - pos.startCol) * charWidth}px`,
+                  width: `${Math.max(20, (pos.endCol - pos.startCol) * charWidth)}px`,
                   height: `${lineHeight}px`,
                   background: colors.bg,
                   borderBottom: `2px solid ${colors.border}`,
@@ -136,7 +180,7 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
                 <div
                   className="absolute pointer-events-auto cursor-pointer"
                   style={{
-                    top: `${pos.startLine * lineHeight}px`,
+                    top: `${topOffset}px`,
                     left: `${paddingLeft + pos.startCol * charWidth}px`,
                     right: '16px',
                     height: `${lineHeight}px`,
@@ -155,7 +199,7 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
                     key={i}
                     className="absolute pointer-events-auto cursor-pointer"
                     style={{
-                      top: `${(pos.startLine + i + 1) * lineHeight}px`,
+                      top: `${paddingTop + (pos.startLine + i + 1) * lineHeight}px`,
                       left: `${paddingLeft}px`,
                       right: '16px',
                       height: `${lineHeight}px`,
@@ -171,9 +215,9 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
                 <div
                   className="absolute pointer-events-auto cursor-pointer"
                   style={{
-                    top: `${pos.endLine * lineHeight}px`,
+                    top: `${paddingTop + pos.endLine * lineHeight}px`,
                     left: `${paddingLeft}px`,
-                    width: `${pos.endCol * charWidth}px`,
+                    width: `${Math.max(20, pos.endCol * charWidth)}px`,
                     height: `${lineHeight}px`,
                     background: colors.bg,
                     borderBottom: `2px solid ${colors.border}`,
@@ -187,12 +231,12 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
               </>
             )}
 
-            {/* Annotation indicator icon (at the end of the highlight) */}
+            {/* Annotation indicator icon (right margin) */}
             <div
-              className="absolute pointer-events-auto cursor-pointer flex items-center justify-center w-4 h-4 rounded-full transition-transform hover:scale-110"
+              className="absolute pointer-events-auto cursor-pointer flex items-center justify-center w-5 h-5 rounded-full transition-transform hover:scale-110"
               style={{
-                top: `${pos.startLine * lineHeight + 2}px`,
-                left: `${paddingLeft + (isSingleLine ? pos.endCol : 100) * charWidth + 4}px`,
+                top: `${topOffset + 2}px`,
+                right: '8px',
                 background: colors.border,
               }}
               onClick={(e) => {
@@ -208,7 +252,7 @@ export function AnnotationMarkers({ annotations, promptText, onAnnotationClick }
       })}
     </div>
   );
-}
+});
 
 // Mini sidebar showing all annotations in the document
 interface AnnotationsSidebarProps {

@@ -258,6 +258,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           currentPrompt: '',
           versions: [],
           tags: [],
+          annotations: [],
         };
 
         set((state) => ({
@@ -625,7 +626,21 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           sync: { ...state.sync, isSyncing: true, syncError: null },
         }));
 
-        const operations = [...sync.pendingOperations];
+        // Sort operations by dependency order:
+        // 1. Projects first (versions depend on them)
+        // 2. Versions second
+        // 3. Knowledge and decisions last
+        const entityOrder: Record<string, number> = {
+          project: 1,
+          version: 2,
+          knowledge: 3,
+          decision: 4,
+        };
+
+        const operations = [...sync.pendingOperations].sort((a, b) => {
+          return (entityOrder[a.entity] || 99) - (entityOrder[b.entity] || 99);
+        });
+
         const processedIds: string[] = [];
 
         for (const op of operations) {

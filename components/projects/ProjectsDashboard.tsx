@@ -42,7 +42,7 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
     setCurrentProject,
     saveVersionToProject,
   } = useKnowledgeStore();
-  const { currentPrompt, setPrompt } = useAnalysisStore();
+  const { currentPrompt } = useAnalysisStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
@@ -92,8 +92,8 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
     if (currentProjectId && currentPrompt) {
       saveVersionToProject(currentProjectId, currentPrompt, 'Auto-guardado');
     }
+    // Just change the project - the useProjectSync hook will load the prompt
     setCurrentProject(project.id);
-    setPrompt(project.currentPrompt);
     onSelectProject(project);
   };
 

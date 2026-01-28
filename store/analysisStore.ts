@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { PromptVersion, PromptAnnotation } from '@/types/prompt';
+import type { PromptVersion, PromptAnnotation, ChatMessage } from '@/types/prompt';
 import type { FeedbackItem } from '@/types/feedback';
 import type { AnalysisResult, SuggestionState } from '@/types/analysis';
 import type { TokenUsage } from '@/types/tokens';
@@ -36,6 +36,8 @@ interface AnalysisStore {
   lastSavedContent: string;
   // Annotations
   annotations: PromptAnnotation[];
+  // Chat messages
+  chatMessages: ChatMessage[];
 
   // Actions - Prompt
   setPrompt: (prompt: string) => void;
@@ -81,6 +83,16 @@ interface AnalysisStore {
   deleteAnnotation: (id: string) => void;
   getAnnotationsInRange: (startOffset: number, endOffset: number) => PromptAnnotation[];
 
+  // Actions - Chat
+  addChatMessage: (message: Omit<ChatMessage, 'id'>) => void;
+  clearChatMessages: () => void;
+  getChatMessages: () => ChatMessage[];
+
+  // Actions - Project Sync (for loading project data)
+  loadProjectData: (data: { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages?: ChatMessage[] }) => void;
+  getProjectData: () => { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages: ChatMessage[] };
+  clearProjectData: () => void;
+
   // Actions - Reset
   reset: () => void;
 }
@@ -104,6 +116,8 @@ const initialState = {
   lastSavedContent: '',
   // Annotations
   annotations: [] as PromptAnnotation[],
+  // Chat messages
+  chatMessages: [] as ChatMessage[],
 };
 
 export const useAnalysisStore = create<AnalysisStore>()(
@@ -126,7 +140,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
         changeType?: 'manual' | 'suggestion_applied' | 'auto_save',
         changeDetails?: { suggestionId?: string; category?: string; sectionTitle?: string }
       ) => {
-        const { currentPrompt, promptHistory } = get();
+        const { currentPrompt, promptHistory, chatMessages } = get();
         const version: PromptVersion = {
           id: crypto.randomUUID(),
           content: currentPrompt,
@@ -134,6 +148,8 @@ export const useAnalysisStore = create<AnalysisStore>()(
           label: label || 'Versión sin nombre',
           changeType: changeType || 'manual',
           changeDetails,
+          // Include chat history with this version
+          chatHistory: chatMessages.length > 0 ? [...chatMessages] : undefined,
         };
         set({
           promptHistory: [...promptHistory, version],
@@ -380,6 +396,69 @@ export const useAnalysisStore = create<AnalysisStore>()(
         );
       },
 
+      // Chat actions
+      addChatMessage: (messageData) => {
+        const message: ChatMessage = {
+          ...messageData,
+          id: crypto.randomUUID(),
+        };
+        set((state) => ({
+          chatMessages: [...state.chatMessages, message],
+        }));
+      },
+
+      clearChatMessages: () => {
+        set({ chatMessages: [] });
+      },
+
+      getChatMessages: () => {
+        return get().chatMessages;
+      },
+
+      // Project Sync actions
+      loadProjectData: (data) => {
+        set({
+          currentPrompt: data.prompt,
+          promptHistory: data.versions,
+          annotations: data.annotations,
+          chatMessages: data.chatMessages || [],
+          lastSavedContent: data.prompt,
+          hasUnsavedChanges: false,
+          // Clear analysis-related state when switching projects
+          analysis: null,
+          suggestionStates: {},
+          selectedSectionId: null,
+          undoStack: [],
+          redoStack: [],
+        });
+      },
+
+      getProjectData: () => {
+        const { currentPrompt, promptHistory, annotations, chatMessages } = get();
+        return {
+          prompt: currentPrompt,
+          versions: promptHistory,
+          annotations: annotations,
+          chatMessages: chatMessages,
+        };
+      },
+
+      clearProjectData: () => {
+        set({
+          currentPrompt: '',
+          promptHistory: [],
+          annotations: [],
+          chatMessages: [],
+          lastSavedContent: '',
+          hasUnsavedChanges: false,
+          analysis: null,
+          suggestionStates: {},
+          selectedSectionId: null,
+          undoStack: [],
+          redoStack: [],
+        });
+      },
+
       // Reset
       reset: () => {
         set(initialState);
@@ -388,14 +467,12 @@ export const useAnalysisStore = create<AnalysisStore>()(
     {
       name: 'ninjo-analysis-storage',
       partialize: (state) => ({
-        currentPrompt: state.currentPrompt,
-        promptHistory: state.promptHistory,
+        // Only persist UI preferences, NOT project data
+        // Project data (prompt, versions, annotations) is stored in knowledgeStore per project
         feedbackItems: state.feedbackItems,
-        analysis: state.analysis,
-        tokenUsage: state.tokenUsage,
         autoSaveEnabled: state.autoSaveEnabled,
-        lastSavedContent: state.lastSavedContent,
-        annotations: state.annotations,
+        // Note: currentPrompt, promptHistory, annotations are NOT persisted here
+        // They are managed by useProjectSync and stored in knowledgeStore
       }),
     }
   )

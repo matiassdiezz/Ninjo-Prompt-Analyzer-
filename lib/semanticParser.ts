@@ -77,65 +77,16 @@ function buildLineInfo(text: string): LineInfo[] {
 
 /**
  * Parses a prompt text and extracts semantic sections.
- * Detects: XML tags, Markdown headers, colon headers, and paragraph blocks.
+ * Only detects XML tags: <tag>...</tag>
  */
 export function parseSemanticSections(text: string): SemanticSection[] {
-  const sections: SemanticSection[] = [];
   const lineInfo = buildLineInfo(text);
-  const usedLineRanges: Set<number> = new Set();
-  let sectionCounter = 0;
 
-  // 1. Detect code blocks (highest priority - they can contain anything)
-  const codeBlockSections = detectCodeBlocks(text, lineInfo, sectionCounter);
-  for (const section of codeBlockSections) {
-    sections.push(section);
-    for (let l = section.startLine; l <= section.endLine; l++) {
-      usedLineRanges.add(l);
-    }
-    sectionCounter++;
-  }
+  // Detect top-level structure + headings
+  const xmlSections = detectXmlSections(text, lineInfo, 0);
+  const markdownHeaderSections = detectMarkdownHeaders(text, lineInfo, xmlSections.length, new Set());
 
-  // 2. Detect XML tags
-  const xmlSections = detectXmlSections(text, lineInfo, sectionCounter);
-  for (const section of xmlSections) {
-    // Skip if any line is already used (e.g., inside a code block)
-    const overlap = Array.from({ length: section.endLine - section.startLine + 1 })
-      .some((_, i) => usedLineRanges.has(section.startLine + i));
-    if (overlap) continue;
-
-    sections.push(section);
-    for (let l = section.startLine; l <= section.endLine; l++) {
-      usedLineRanges.add(l);
-    }
-    sectionCounter++;
-  }
-
-  // 3. Detect Markdown headers
-  const mdSections = detectMarkdownHeaders(text, lineInfo, sectionCounter, usedLineRanges);
-  for (const section of mdSections) {
-    sections.push(section);
-    for (let l = section.startLine; l <= section.endLine; l++) {
-      usedLineRanges.add(l);
-    }
-    sectionCounter++;
-  }
-
-  // 3. Detect colon headers (e.g., "Instructions:")
-  const colonSections = detectColonHeaders(text, lineInfo, sectionCounter, usedLineRanges);
-  for (const section of colonSections) {
-    sections.push(section);
-    for (let l = section.startLine; l <= section.endLine; l++) {
-      usedLineRanges.add(l);
-    }
-    sectionCounter++;
-  }
-
-  // 4. Detect remaining paragraph blocks (separated by 2+ newlines)
-  const paragraphSections = detectParagraphBlocks(text, lineInfo, sectionCounter, usedLineRanges);
-  for (const section of paragraphSections) {
-    sections.push(section);
-    sectionCounter++;
-  }
+  const sections = [...xmlSections, ...markdownHeaderSections];
 
   // Sort by start line
   sections.sort((a, b) => a.startLine - b.startLine);
@@ -314,61 +265,54 @@ function detectMarkdownHeaders(
   text: string,
   lineInfo: LineInfo[],
   startId: number,
-  usedLines: Set<number>
+  _usedLines: Set<number>
 ): SemanticSection[] {
   const sections: SemanticSection[] = [];
   const lines = text.split('\n');
 
   // Pattern for markdown headers: ## Title or **Title:**
-  const mdHeaderRegex = /^(#{1,6})\s+(.+)$|^\*\*(.+?)\*\*:?\s*$/;
+  const mdHeaderRegex = /^(#{1,6})\s+(.+)$|^\*\*(.+?)\*\*:?:?\s*$/;
 
   let id = startId;
-  let currentSection: Partial<SemanticSection> | null = null;
+  let inCodeBlock = false;
 
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const lineNum = lineIndex + 1;
-    if (usedLines.has(lineNum)) continue;
-
     const line = lines[lineIndex];
-    const match = line.trim().match(mdHeaderRegex);
+    const trimmedLine = line.trim();
+    const lineNum = lineIndex + 1;
 
-    if (match) {
-      // Close previous section if exists
-      if (currentSection) {
-        currentSection.endLine = lineIndex;
-        currentSection.endIndex = lineInfo[lineIndex - 1]?.endIndex ?? lineInfo[lineIndex].startIndex;
-        currentSection.content = lines.slice(
-          (currentSection.startLine ?? 1) - 1,
-          currentSection.endLine
-        ).join('\n');
-        sections.push(currentSection as SemanticSection);
-      }
-
-      const title = formatTitle(match[2] || match[3]);
-      currentSection = {
-        id: `section-${id++}`,
-        type: 'markdown_header',
-        title,
-        inferredPurpose: inferPurpose(title, ''),
-        startLine: lineNum,
-        endLine: lineNum,
-        startIndex: lineInfo[lineIndex].startIndex,
-        endIndex: lineInfo[lineIndex].endIndex,
-        content: '',
-        suggestionCount: 0,
-      };
+    // Track fenced code blocks so we don't treat headings inside as sections
+    if (trimmedLine.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
     }
-  }
 
-  // Close last section
-  if (currentSection) {
-    currentSection.endLine = lines.length;
-    currentSection.endIndex = lineInfo[lines.length - 1]?.endIndex ?? text.length;
-    currentSection.content = lines.slice(
-      (currentSection.startLine ?? 1) - 1,
-      currentSection.endLine
-    ).join('\n');
-    sections.push(currentSection as SemanticSection);
+    if (inCodeBlock) continue;
+
+    const match = trimmedLine.match(mdHeaderRegex);
+    if (!match) continue;
+
+    const rawTitle = match[2] || match[3];
+    if (!rawTitle) continue;
+
+    const title = formatTitle(rawTitle);
+    if (!title) continue;
+
+    const level = match[1] ? match[1].length : undefined;
+
+    sections.push({
+      id: `section-${id++}`,
+      type: 'markdown_header',
+      title,
+      inferredPurpose: inferPurpose(title, ''),
+      startLine: lineNum,
+      endLine: lineNum,
+      startIndex: lineInfo[lineIndex].startIndex,
+      endIndex: lineInfo[lineIndex].endIndex,
+      content: line,
+      suggestionCount: 0,
+      ...(level ? { level } : {}),
+    });
   }
 
   return sections;

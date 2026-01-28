@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { useAnalysisStore } from '@/store/analysisStore';
-import { DataManager } from './DataManager';
 import type { Project } from '@/types/prompt';
 import {
   FolderOpen,
@@ -11,7 +10,6 @@ import {
   ChevronDown,
   Check,
   Trash2,
-  Settings,
 } from 'lucide-react';
 
 export function ProjectSelector() {
@@ -23,11 +21,10 @@ export function ProjectSelector() {
     setCurrentProject,
     saveVersionToProject,
   } = useKnowledgeStore();
-  const { currentPrompt, setPrompt } = useAnalysisStore();
+  const { currentPrompt } = useAnalysisStore();
 
   const [isOpen, setIsOpen] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
-  const [showDataManager, setShowDataManager] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectClient, setNewProjectClient] = useState('');
 
@@ -51,8 +48,8 @@ export function ProjectSelector() {
       saveVersionToProject(currentProjectId, currentPrompt, 'Auto-guardado');
     }
 
+    // Just change the project - the useProjectSync hook will load the prompt
     setCurrentProject(project.id);
-    setPrompt(project.currentPrompt);
     setIsOpen(false);
   };
 
@@ -111,17 +108,15 @@ export function ProjectSelector() {
 
           {/* Menu */}
           <div
-            className="absolute top-full left-0 mt-2 w-80 rounded-xl overflow-hidden z-20 animate-slideDown"
+            className="absolute top-full right-0 mt-2 w-80 rounded-xl overflow-hidden z-20 animate-slideDown"
             style={{
               background: 'var(--bg-elevated)',
               border: '1px solid var(--border-default)',
               boxShadow: 'var(--shadow-lg)'
             }}
           >
-            {/* Data Manager */}
-            {showDataManager ? (
-              <DataManager onClose={() => setShowDataManager(false)} />
-            ) : showNewForm ? (
+            {/* New Project Form */}
+            {showNewForm ? (
               <div className="p-4" style={{ background: 'var(--accent-subtle)' }}>
                 <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
                   Nuevo proyecto
@@ -158,28 +153,18 @@ export function ProjectSelector() {
                 </div>
               </div>
             ) : (
-              <div className="flex border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-                <button
-                  onClick={() => setShowNewForm(true)}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all duration-200 hover:bg-[var(--accent-subtle)]"
-                  style={{ color: 'var(--accent-primary)' }}
-                >
-                  <Plus className="h-4 w-4" />
-                  Nuevo
-                </button>
-                <div className="w-px" style={{ background: 'var(--border-subtle)' }} />
-                <button
-                  onClick={() => setShowDataManager(true)}
-                  className="flex items-center justify-center gap-2 px-4 py-3 text-sm transition-all duration-200 btn-ghost"
-                  title="Exportar / Importar"
-                >
-                  <Settings className="h-4 w-4" />
-                </button>
-              </div>
+              <button
+                onClick={() => setShowNewForm(true)}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-all duration-200 hover:bg-[var(--accent-subtle)] border-b"
+                style={{ color: 'var(--accent-primary)', borderColor: 'var(--border-subtle)' }}
+              >
+                <Plus className="h-4 w-4" />
+                Nuevo proyecto
+              </button>
             )}
 
             {/* Projects List */}
-            {!showDataManager && !showNewForm && (
+            {!showNewForm && (
               <div className="max-h-72 overflow-y-auto">
                 {projects.length === 0 ? (
                   <div className="p-6 text-center">

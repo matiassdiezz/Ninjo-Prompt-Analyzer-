@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import type { PromptAnnotation } from '@/types/prompt';
@@ -106,19 +106,63 @@ export function AnnotationPopover({
   };
 
   const currentType = annotationTypes.find((t) => t.type === type);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [adjustedPosition, setAdjustedPosition] = useState({ x: position.x, y: position.y });
+
+  // Adjust position to keep popover within viewport
+  useEffect(() => {
+    if (!popoverRef.current) return;
+
+    const popover = popoverRef.current;
+    const rect = popover.getBoundingClientRect();
+    const padding = 16; // Padding from viewport edges
+
+    let newX = position.x;
+    let newY = position.y;
+
+    // Adjust horizontal position
+    const halfWidth = rect.width / 2;
+    if (position.x - halfWidth < padding) {
+      newX = halfWidth + padding;
+    } else if (position.x + halfWidth > window.innerWidth - padding) {
+      newX = window.innerWidth - halfWidth - padding;
+    }
+
+    // Adjust vertical position - prefer below, but flip if no space
+    if (position.y + rect.height > window.innerHeight - padding) {
+      // Not enough space below, try to place above or at the top
+      newY = Math.max(padding, position.y - rect.height - 20);
+    }
+
+    // Ensure it's not cut off at the top
+    if (newY < padding) {
+      newY = padding;
+    }
+
+    setAdjustedPosition({ x: newX, y: newY });
+  }, [position]);
 
   return (
-    <div
-      className="fixed z-50 rounded-xl shadow-xl"
-      style={{
-        left: `${position.x}px`,
-        top: `${position.y}px`,
-        width: '320px',
-        background: 'var(--bg-elevated)',
-        border: '1px solid var(--border-default)',
-        transform: 'translateX(-50%)',
-      }}
-    >
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40"
+        onClick={onClose}
+      />
+      <div
+        ref={popoverRef}
+        className="fixed z-50 rounded-xl shadow-xl animate-fadeIn"
+        style={{
+          left: `${adjustedPosition.x}px`,
+          top: `${adjustedPosition.y}px`,
+          width: '340px',
+          maxWidth: 'calc(100vw - 32px)',
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border-default)',
+          transform: 'translateX(-50%)',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+      >
       {/* Header */}
       <div
         className="flex items-center justify-between px-3 py-2 border-b"
@@ -193,39 +237,59 @@ export function AnnotationPopover({
 
       {/* Actions */}
       <div
-        className="flex items-center justify-between px-3 py-2 border-t"
+        className="px-3 py-3 border-t space-y-2"
         style={{ borderColor: 'var(--border-subtle)' }}
       >
-        <div className="flex gap-1">
-          {existingAnnotation && (
+        {/* Main action buttons */}
+        <div className="flex gap-2">
+          <button
+            onClick={onClose}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium"
+            style={{
+              background: 'var(--bg-tertiary)',
+              color: 'var(--text-secondary)',
+              border: '1px solid var(--border-subtle)',
+            }}
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!comment.trim()}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold btn-primary disabled:opacity-40"
+          >
+            <Save className="h-3.5 w-3.5" />
+            Guardar
+          </button>
+        </div>
+
+        {/* Secondary actions */}
+        <div className="flex items-center justify-between">
+          {existingAnnotation ? (
             <button
               onClick={handleDelete}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs btn-ghost"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-colors hover:bg-[var(--error-subtle)]"
               style={{ color: 'var(--error)' }}
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-3 w-3" />
               Eliminar
             </button>
+          ) : (
+            <div />
           )}
           <button
             onClick={handleSaveAsKnowledge}
             disabled={!comment.trim()}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs btn-ghost disabled:opacity-40"
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-colors hover:bg-[var(--accent-subtle)] disabled:opacity-40"
+            style={{ color: 'var(--text-tertiary)' }}
             title="Guardar como conocimiento para futuros análisis"
           >
-            <BookOpen className="h-3.5 w-3.5" />
-            Guardar como conocimiento
+            <BookOpen className="h-3 w-3" />
+            <span>Guardar a Knowledge</span>
           </button>
         </div>
-        <button
-          onClick={handleSave}
-          disabled={!comment.trim()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium btn-primary disabled:opacity-40"
-        >
-          <Save className="h-3.5 w-3.5" />
-          Guardar
-        </button>
       </div>
     </div>
+    </>
   );
 }

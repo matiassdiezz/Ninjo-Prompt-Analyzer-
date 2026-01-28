@@ -1,3 +1,11 @@
+// Chat message for QA conversations
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
 // Version with detailed change tracking
 export interface PromptVersion {
   id: string;
@@ -13,6 +21,8 @@ export interface PromptVersion {
     category?: string;
     sectionTitle?: string;
   };
+  // Chat history at the time of this version
+  chatHistory?: ChatMessage[];
 }
 
 export interface VersionChange {
@@ -35,6 +45,10 @@ export interface Project {
   currentPrompt: string;
   versions: PromptVersion[];
   tags: string[];
+  // Annotations are project-specific
+  annotations?: PromptAnnotation[];
+  // Chat messages are project-specific
+  chatMessages?: ChatMessage[];
 }
 
 // Knowledge base entry
