@@ -19,7 +19,6 @@
     "lucide-react": "^0.562.0",
     "next": "^16.1.4",
     "react": "^19.2.3",
-    "react-diff-viewer-continued": "^3.4.0",
     "react-dom": "^19.2.3",
     "react-hook-form": "^7.71.1",
     "zod": "^4.3.5",
