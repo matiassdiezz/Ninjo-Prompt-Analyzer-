@@ -1,6 +1,7 @@
 import type { Project, PromptVersion, KnowledgeEntry, SuggestionDecision, VersionChange } from '@/types/prompt';
 
 // Database row types
+// Note: status now uses the same Spanish values as the app (enum nativo en Supabase)
 export interface DbDevice {
   id: string;
   device_fingerprint: string;
@@ -14,7 +15,7 @@ export interface DbProject {
   name: string;
   description: string;
   client_name: string | null;
-  status: 'draft' | 'in_progress' | 'deployed' | 'archived';
+  status: 'en_proceso' | 'revision_cliente' | 'finalizado' | 'archivado';
   current_prompt: string;
   tags: string[];
   created_at: string;
@@ -63,6 +64,34 @@ export interface DbSuggestionDecision {
   created_at: string;
 }
 
+// Fase 4: Colaboración - Comentarios
+export interface DbLearningComment {
+  id: string;
+  learning_id: string;
+  device_id: string;
+  author_name: string | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Fase 4: Colaboración - Votos
+export interface DbLearningVote {
+  id: string;
+  learning_id: string;
+  device_id: string;
+  vote: -1 | 1;
+  created_at: string;
+}
+
+// Fase 4: Colaboración - Onboarding
+export interface DbOnboardingProgress {
+  device_id: string;
+  learning_id: string;
+  marked_read: boolean;
+  read_at: string | null;
+}
+
 // Mappers: DB -> App
 export function mapDbProjectToApp(dbProject: DbProject, versions: DbPromptVersion[]): Project {
   return {
@@ -70,7 +99,7 @@ export function mapDbProjectToApp(dbProject: DbProject, versions: DbPromptVersio
     name: dbProject.name,
     description: dbProject.description,
     clientName: dbProject.client_name || undefined,
-    status: dbProject.status,
+    status: dbProject.status, // Direct mapping - same values in DB and app
     createdAt: new Date(dbProject.created_at).getTime(),
     updatedAt: new Date(dbProject.updated_at).getTime(),
     currentPrompt: dbProject.current_prompt,
@@ -130,7 +159,7 @@ export interface DbProjectInsert {
   name: string;
   description: string;
   client_name?: string | null;
-  status: 'draft' | 'in_progress' | 'deployed' | 'archived';
+  status: 'en_proceso' | 'revision_cliente' | 'finalizado' | 'archivado';
   current_prompt: string;
   tags: string[];
 }
@@ -179,7 +208,7 @@ export function mapAppProjectToDbInsert(project: Project, deviceId: string): DbP
     name: project.name,
     description: project.description,
     client_name: project.clientName || null,
-    status: project.status,
+    status: project.status, // Direct mapping - same values in DB and app
     current_prompt: project.currentPrompt,
     tags: project.tags,
   };

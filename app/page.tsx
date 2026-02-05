@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { EditorPanel } from '@/components/editor/EditorPanel';
@@ -12,8 +12,11 @@ import { DataManager } from '@/components/projects/DataManager';
 import { VersionHistoryModal } from '@/components/versions/VersionHistoryModal';
 import { NinjoMemory } from '@/components/memory/NinjoMemory';
 import { SyncStatus } from '@/components/ui/SyncStatus';
+import { ToastContainer, NewLearningToast } from '@/components/ui/Toast';
+import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { useSupabaseInit } from '@/lib/supabase/hooks/useSupabaseInit';
 import { useProjectSync } from '@/lib/hooks/useProjectSync';
+import type { KnowledgeEntry } from '@/types/prompt';
 import {
   AlertCircle,
   GitBranch,
@@ -36,10 +39,35 @@ export default function Home() {
   // Sync editor prompt with current project
   useProjectSync();
 
+  // Track mounted state to prevent hydration mismatch
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Listen for new learnings from other devices (Realtime)
+  useEffect(() => {
+    const handleNewLearning = (event: CustomEvent<KnowledgeEntry>) => {
+      const newLearning = event.detail;
+      setNewLearningToasts(prev => [...prev, newLearning]);
+      
+      // Auto-remove after 8 seconds
+      setTimeout(() => {
+        setNewLearningToasts(prev => prev.filter(l => l.id !== newLearning.id));
+      }, 8000);
+    };
+
+    window.addEventListener('new-learning', handleNewLearning as EventListener);
+    return () => window.removeEventListener('new-learning', handleNewLearning as EventListener);
+  }, []);
+
   // Active view: 'workspace' | 'memory' | 'projects' | 'history'
   type ActiveView = 'workspace' | 'memory' | 'projects' | 'history';
   const [activeView, setActiveView] = useState<ActiveView>('workspace');
   const [showDataManager, setShowDataManager] = useState(false);
+  
+  // Toast notifications for new learnings
+  const [newLearningToasts, setNewLearningToasts] = useState<KnowledgeEntry[]>([]);
 
   // Get memory entries count for badge
   const { entries } = useKnowledgeStore();
@@ -50,28 +78,24 @@ export default function Home() {
       {/* Header */}
       <header className="flex-shrink-0 glass border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center ">
-            <div className="h-24 w-24 relative">
-              <Image
-                src="/images/LogoNazare.png"
-                alt="Ninjo Logo"
-                fill
-                className="object-contain drop-shadow-lg"
-              />
+          <div className="flex items-center gap-1">
+            <div className="h-12 w-12 relative flex-shrink-0">
+             <Image src="/images/LogoNazare.png" alt="Ninjo Logo" width={48} height={48} />
             </div>
-            <div className="hidden sm:block">
-              <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                Ninjo
+            <div className="hidden sm:flex flex-col">
+              <h1 className="text-lg font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
+                Ninjo - Nazáre
               </h1>
-              <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
-                Nazáre Edition
-              </p>
+              
             </div>
           </div>
 
           {/* Project Selector & Sync Status */}
           <div className="flex items-center gap-3">
             <SyncStatus />
+
+            {/* Theme Toggle */}
+            <ThemeToggle />
 
             {/* Tab Buttons */}
             <div
@@ -90,7 +114,7 @@ export default function Home() {
               >
                 <Brain className="h-4 w-4" />
                 <span className="text-sm hidden sm:inline">Memoria</span>
-                {memoryCount > 0 && (
+                {mounted && memoryCount > 0 && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
                     style={{
@@ -115,7 +139,7 @@ export default function Home() {
               >
                 <GitBranch className="h-4 w-4" />
                 <span className="text-sm hidden sm:inline">Historial</span>
-                {versionsCount > 0 && (
+                {mounted && versionsCount > 0 && (
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
                     style={{
@@ -257,6 +281,16 @@ export default function Home() {
         </div>
       </footer>
 
+      {/* Toast Notifications */}
+      <ToastContainer>
+        {newLearningToasts.map((learning) => (
+          <NewLearningToast
+            key={learning.id}
+            learning={learning}
+            onClose={() => setNewLearningToasts(prev => prev.filter(l => l.id !== learning.id))}
+          />
+        ))}
+      </ToastContainer>
     </div>
   );
 }

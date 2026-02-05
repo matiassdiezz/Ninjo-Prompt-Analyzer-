@@ -2,8 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
-import { MessageCircle, Send, Loader2, Sparkles, FileText, Zap } from 'lucide-react';
+import { useKnowledgeStore } from '@/store/knowledgeStore';
+import { MessageCircle, Send, Loader2, Sparkles, FileText, Zap, X, Brain } from 'lucide-react';
 import { LearningCard } from './LearningCard';
+import { MarkdownMessage } from './MarkdownMessage';
+import { DuplicatePatternAlert, TestingSuggestionsAlert } from './DuplicatePatternAlert';
 import type { ExtractedLearning } from '@/lib/utils/learningExtractor';
 import type { ChatMessage } from '@/types/prompt';
 
@@ -36,7 +39,8 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 export function NinjoChatPanel() {
-  const { currentPrompt, chatMessages, addChatMessage } = useAnalysisStore();
+  const { currentPrompt, chatMessages, addChatMessage, setPrompt } = useAnalysisStore();
+  const { addEntry, currentProjectId, entries, decisions } = useKnowledgeStore();
   // Local state for learnings (not persisted to store)
   const [messageLearnings, setMessageLearnings] = useState<Map<string, ExtractedLearning[]>>(new Map());
   const [input, setInput] = useState('');
@@ -44,6 +48,19 @@ export function NinjoChatPanel() {
   const [dismissedLearnings, setDismissedLearnings] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  
+  // State for duplicates and testing suggestions
+  const [currentDuplicates, setCurrentDuplicates] = useState<any[]>([]);
+  const [currentTestingSuggestions, setCurrentTestingSuggestions] = useState<any[]>([]);
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  const [showTestingSuggestions, setShowTestingSuggestions] = useState(false);
+
+  // State for save to memory modal
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [codeToSave, setCodeToSave] = useState('');
+  const [memoryTitle, setMemoryTitle] = useState('');
+  const [memoryDescription, setMemoryDescription] = useState('');
+  const [memoryTags, setMemoryTags] = useState('');
 
   // Combine store messages with local learnings for display
   const messagesWithLearnings: ChatMessageWithLearnings[] = chatMessages.map((msg) => ({
@@ -109,6 +126,25 @@ export function NinjoChatPanel() {
     setIsLoading(true);
 
     try {
+      // Get top 5 most relevant learnings for context injection
+      const relevantLearnings = entries
+        .sort((a, b) => {
+          // Sort by effectiveness and usage
+          const scoreA = (a.effectiveness === 'high' ? 3 : a.effectiveness === 'medium' ? 2 : 1) + (a.usageCount * 0.1);
+          const scoreB = (b.effectiveness === 'high' ? 3 : b.effectiveness === 'medium' ? 2 : 1) + (b.usageCount * 0.1);
+          return scoreB - scoreA;
+        })
+        .slice(0, 5)
+        .map(e => ({
+          id: e.id,
+          type: e.type,
+          title: e.title,
+          description: e.description,
+          example: e.example,
+          effectiveness: e.effectiveness,
+          usageCount: e.usageCount,
+        }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -116,6 +152,22 @@ export function NinjoChatPanel() {
           prompt: currentPrompt,
           question,
           history: chatMessages,
+          relevantLearnings,
+          allKnowledge: entries.map(e => ({
+            id: e.id,
+            type: e.type,
+            title: e.title,
+            description: e.description,
+            tags: e.tags,
+          })),
+          historicalDecisions: decisions.map(d => ({
+            decision: d.decision,
+            category: d.category,
+            originalText: d.originalText,
+            suggestedText: d.suggestedText,
+            justification: d.justification,
+          })),
+          projectId: currentProjectId,
         }),
       });
 
@@ -126,25 +178,32 @@ export function NinjoChatPanel() {
 
       const data = await response.json();
 
-      // Add assistant message to store
-      addChatMessage({
+      // Add assistant message and get its ID
+      const assistantMessageId = addChatMessage({
         role: 'assistant',
         content: data.response,
         timestamp: Date.now(),
       });
 
-      // Store learnings locally (keyed by message id - we need to get the latest message)
-      if (data.learnings && data.learnings.length > 0) {
-        // Get the ID of the message we just added (it's the last one in the store)
-        const latestMessages = useAnalysisStore.getState().chatMessages;
-        const lastMessage = latestMessages[latestMessages.length - 1];
-        if (lastMessage) {
-          setMessageLearnings((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(lastMessage.id, data.learnings);
-            return newMap;
-          });
-        }
+      // Store learnings locally using the returned message ID
+      if (data.learnings && Array.isArray(data.learnings) && data.learnings.length > 0) {
+        setMessageLearnings((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(assistantMessageId, data.learnings);
+          return newMap;
+        });
+      }
+
+      // Handle duplicates
+      if (data.duplicates && Array.isArray(data.duplicates) && data.duplicates.length > 0) {
+        setCurrentDuplicates(data.duplicates);
+        setShowDuplicates(true);
+      }
+
+      // Handle testing suggestions
+      if (data.testingSuggestions && Array.isArray(data.testingSuggestions) && data.testingSuggestions.length > 0) {
+        setCurrentTestingSuggestions(data.testingSuggestions);
+        setShowTestingSuggestions(true);
       }
     } catch (error) {
       console.error('Chat error:', error);
@@ -169,6 +228,61 @@ export function NinjoChatPanel() {
       sendMessage(input);
     }
   };
+
+  const handleApplyCode = useCallback((code: string) => {
+    try {
+      setPrompt(code);
+      addChatMessage({
+        role: 'assistant',
+        content: '✅ Cambio aplicado al prompt',
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('Error applying code:', error);
+      addChatMessage({
+        role: 'assistant',
+        content: '❌ Error al aplicar el cambio. Por favor, intentá de nuevo.',
+        timestamp: Date.now(),
+      });
+    }
+  }, [setPrompt, addChatMessage]);
+
+  // Handle save to memory
+  const handleSaveToMemory = useCallback((code: string) => {
+    setCodeToSave(code);
+    setMemoryTitle('');
+    setMemoryDescription('');
+    setMemoryTags('');
+    setShowSaveModal(true);
+  }, []);
+
+  const handleSaveMemoryConfirm = () => {
+    if (!memoryTitle.trim() || !codeToSave) return;
+
+    addEntry({
+      type: 'pattern',
+      title: memoryTitle.trim(),
+      description: memoryDescription.trim() || 'Código guardado desde el chat',
+      example: codeToSave,
+      tags: memoryTags.split(',').map(t => t.trim()).filter(Boolean),
+      effectiveness: 'high',
+      feedbackType: 'Cambio aplicado manualmente desde chat',
+    });
+
+    setShowSaveModal(false);
+    setCodeToSave('');
+    addChatMessage({
+      role: 'assistant',
+      content: `💾 "${memoryTitle.trim()}" guardado en memoria`,
+      timestamp: Date.now(),
+    });
+  };
+
+  // Handle navigate to section
+  const handleNavigateToSection = useCallback((section: string) => {
+    // Dispatch custom event that the editor can listen to
+    window.dispatchEvent(new CustomEvent('navigate-to-section', { detail: { section } }));
+  }, []);
 
   // Empty state when no prompt
   if (!currentPrompt.trim()) {
@@ -280,10 +394,8 @@ export function NinjoChatPanel() {
                 : [];
 
               return (
-                <div key={message.id} className="space-y-3">
-                  <div
-                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                  >
+                <div key={message.id} className="space-y-2">
+                  <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div
                       className={`max-w-[85%] rounded-2xl px-4 py-3 ${
                         message.role === 'user' ? 'rounded-br-md' : 'rounded-bl-md'
@@ -300,16 +412,25 @@ export function NinjoChatPanel() {
                           : '1px solid var(--border-subtle)',
                       }}
                     >
-                      <div className="text-sm whitespace-pre-wrap markdown-content">
-                        {message.content}
-                      </div>
+                      {message.role === 'user' ? (
+                        <div className="text-sm whitespace-pre-wrap">
+                          {message.content}
+                        </div>
+                      ) : (
+                        <MarkdownMessage 
+                          content={message.content}
+                          onApplyCode={handleApplyCode}
+                          onSaveToMemory={handleSaveToMemory}
+                          onNavigateToSection={handleNavigateToSection}
+                        />
+                      )}
                     </div>
                   </div>
 
-                  {/* Learning Cards */}
+                  {/* Learnings */}
                   {visibleLearnings.length > 0 && (
-                    <div className="pl-2 space-y-2">
-                      {visibleLearnings.map((learning, learningIndex) => {
+                    <div className="ml-4 space-y-2">
+                      {visibleLearnings.map((learning) => {
                         const originalIndex = message.learnings!.indexOf(learning);
                         return (
                           <LearningCard
@@ -323,7 +444,6 @@ export function NinjoChatPanel() {
                               });
                             }}
                             onSaved={() => {
-                              // Learning was saved, dismiss it
                               setDismissedLearnings((prev) => {
                                 const newSet = new Set(prev);
                                 newSet.add(`${learningKey}-${originalIndex}`);
@@ -338,6 +458,22 @@ export function NinjoChatPanel() {
                 </div>
               );
             })}
+
+            {/* Duplicate Pattern Alert */}
+            {showDuplicates && currentDuplicates.length > 0 && (
+              <DuplicatePatternAlert
+                duplicates={currentDuplicates}
+                onDismiss={() => setShowDuplicates(false)}
+              />
+            )}
+
+            {/* Testing Suggestions Alert */}
+            {showTestingSuggestions && currentTestingSuggestions.length > 0 && (
+              <TestingSuggestionsAlert
+                suggestions={currentTestingSuggestions}
+                onDismiss={() => setShowTestingSuggestions(false)}
+              />
+            )}
 
             {/* Loading indicator */}
             {isLoading && (
@@ -399,6 +535,128 @@ export function NinjoChatPanel() {
           Shift + Enter para nueva línea
         </p>
       </div>
+
+      {/* Save to Memory Modal */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div 
+            className="w-full max-w-md rounded-xl p-6 space-y-4"
+            style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-default)' }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Brain className="h-5 w-5" style={{ color: 'var(--accent-primary)' }} />
+                <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  Guardar en memoria
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="p-1 rounded hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  Título *
+                </label>
+                <input
+                  type="text"
+                  value={memoryTitle}
+                  onChange={(e) => setMemoryTitle(e.target.value)}
+                  placeholder="Ej: Regla de tono para saludos"
+                  className="w-full px-3 py-2 text-sm rounded-lg"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  Descripción
+                </label>
+                <textarea
+                  value={memoryDescription}
+                  onChange={(e) => setMemoryDescription(e.target.value)}
+                  placeholder="¿Cuándo usar este patrón?"
+                  rows={3}
+                  className="w-full px-3 py-2 text-sm rounded-lg resize-none"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  Tags (separados por coma)
+                </label>
+                <input
+                  type="text"
+                  value={memoryTags}
+                  onChange={(e) => setMemoryTags(e.target.value)}
+                  placeholder="tono, saludos, reglas"
+                  className="w-full px-3 py-2 text-sm rounded-lg"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  Código a guardar
+                </label>
+                <pre 
+                  className="text-xs p-3 rounded-lg overflow-x-auto max-h-32"
+                  style={{ 
+                    background: 'var(--bg-tertiary)', 
+                    color: 'var(--text-secondary)',
+                    border: '1px solid var(--border-subtle)'
+                  }}
+                >
+                  <code>{codeToSave.substring(0, 200)}{codeToSave.length > 200 ? '...' : ''}</code>
+                </pre>
+              </div>
+            </div>
+            
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="flex-1 px-4 py-2 text-sm rounded-lg transition-colors"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-secondary)',
+                  border: '1px solid var(--border-subtle)',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveMemoryConfirm}
+                disabled={!memoryTitle.trim()}
+                className="flex-1 px-4 py-2 text-sm rounded-lg transition-colors disabled:opacity-50"
+                style={{
+                  background: 'var(--accent-primary)',
+                  color: '#0a0e14',
+                }}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

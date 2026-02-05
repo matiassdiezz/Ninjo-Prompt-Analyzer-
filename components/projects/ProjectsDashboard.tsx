@@ -123,23 +123,23 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
 
   const getStatusConfig = (status: Project['status']) => {
     switch (status) {
-      case 'deployed':
+      case 'finalizado':
         return {
-          label: 'Deployed',
+          label: 'Finalizado',
           icon: <CheckCircle className="h-3.5 w-3.5" />,
           bg: 'var(--success-subtle)',
           text: 'var(--success)',
           border: 'rgba(63, 185, 80, 0.3)',
         };
-      case 'in_progress':
+      case 'revision_cliente':
         return {
-          label: 'En progreso',
-          icon: <Clock className="h-3.5 w-3.5" />,
-          bg: 'var(--info-subtle)',
-          text: 'var(--info)',
-          border: 'rgba(88, 166, 255, 0.3)',
+          label: 'Revisión cliente',
+          icon: <AlertCircle className="h-3.5 w-3.5" />,
+          bg: 'var(--warning-subtle)',
+          text: 'var(--warning)',
+          border: 'rgba(240, 180, 41, 0.3)',
         };
-      case 'archived':
+      case 'archivado':
         return {
           label: 'Archivado',
           icon: <Archive className="h-3.5 w-3.5" />,
@@ -147,31 +147,32 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
           text: 'var(--text-muted)',
           border: 'var(--border-subtle)',
         };
+      case 'en_proceso':
       default:
         return {
-          label: 'Borrador',
-          icon: <FileText className="h-3.5 w-3.5" />,
-          bg: 'var(--warning-subtle)',
-          text: 'var(--warning)',
-          border: 'rgba(240, 180, 41, 0.3)',
+          label: 'En proceso',
+          icon: <Clock className="h-3.5 w-3.5" />,
+          bg: 'var(--info-subtle)',
+          text: 'var(--info)',
+          border: 'rgba(88, 166, 255, 0.3)',
         };
     }
   };
 
   const statusOptions: { value: FilterStatus; label: string }[] = [
     { value: 'all', label: 'Todos' },
-    { value: 'draft', label: 'Borrador' },
-    { value: 'in_progress', label: 'En progreso' },
-    { value: 'deployed', label: 'Deployed' },
-    { value: 'archived', label: 'Archivado' },
+    { value: 'en_proceso', label: 'En proceso' },
+    { value: 'revision_cliente', label: 'Revisión cliente' },
+    { value: 'finalizado', label: 'Finalizado' },
+    { value: 'archivado', label: 'Archivado' },
   ];
 
   // Stats
   const stats = useMemo(() => ({
     total: projects.length,
-    draft: projects.filter((p) => p.status === 'draft').length,
-    inProgress: projects.filter((p) => p.status === 'in_progress').length,
-    deployed: projects.filter((p) => p.status === 'deployed').length,
+    enProceso: projects.filter((p) => p.status === 'en_proceso').length,
+    revisionCliente: projects.filter((p) => p.status === 'revision_cliente').length,
+    finalizado: projects.filter((p) => p.status === 'finalizado').length,
   }), [projects]);
 
   return (
@@ -211,9 +212,9 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
         {/* Stats Row */}
         <div className="flex gap-3 mb-4">
           {[
-            { label: 'Borrador', count: stats.draft, color: 'var(--warning)' },
-            { label: 'En progreso', count: stats.inProgress, color: 'var(--info)' },
-            { label: 'Deployed', count: stats.deployed, color: 'var(--success)' },
+            { label: 'En proceso', count: stats.enProceso, color: 'var(--info)' },
+            { label: 'Revisión', count: stats.revisionCliente, color: 'var(--warning)' },
+            { label: 'Finalizado', count: stats.finalizado, color: 'var(--success)' },
           ].map((stat) => (
             <div
               key={stat.label}

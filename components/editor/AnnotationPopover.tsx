@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import type { PromptAnnotation } from '@/types/prompt';
+import { detectCategory } from '@/lib/utils/learningExtractor';
 import {
   MessageSquare,
   Lightbulb,
@@ -13,6 +14,7 @@ import {
   Save,
   BookOpen,
   X,
+  Zap,
 } from 'lucide-react';
 
 interface AnnotationPopoverProps {
@@ -39,8 +41,8 @@ export function AnnotationPopover({
   existingAnnotation,
   onClose,
 }: AnnotationPopoverProps) {
-  const { addAnnotation, updateAnnotation, deleteAnnotation } = useAnalysisStore();
-  const { addEntry, getCurrentProject } = useKnowledgeStore();
+  const { addAnnotation, updateAnnotation, deleteAnnotation, currentPrompt, setPrompt, pushUndo, createVersion, autoSaveEnabled } = useAnalysisStore();
+  const { addEntry, getCurrentProject, incrementUsage, entries } = useKnowledgeStore();
 
   const [type, setType] = useState<PromptAnnotation['type']>(existingAnnotation?.type || 'note');
   const [comment, setComment] = useState(existingAnnotation?.comment || '');
@@ -71,9 +73,53 @@ export function AnnotationPopover({
     onClose();
   };
 
+  const handleApplyPattern = () => {
+    if (!existingAnnotation?.knowledgeEntryId) return;
+    
+    const learning = entries.find(e => e.id === existingAnnotation.knowledgeEntryId);
+    if (!learning || !learning.example) return;
+    
+    // Save state for undo
+    pushUndo();
+    
+    // Replace selected text with the learning example
+    const before = currentPrompt.substring(0, startOffset);
+    const after = currentPrompt.substring(endOffset);
+    const newPrompt = before + learning.example + after;
+    
+    setPrompt(newPrompt);
+    
+    // Increment usage
+    if (project) {
+      incrementUsage(learning.id, project.id);
+    }
+    
+    // Create version if auto-save enabled
+    if (autoSaveEnabled) {
+      createVersion(
+        `Aplicado patrón: ${learning.title}`,
+        'suggestion_applied',
+        { category: learning.tags[0] || 'annotation' }
+      );
+    }
+    
+    // Delete the annotation since it was applied
+    deleteAnnotation(existingAnnotation.id);
+    
+    onClose();
+  };
+
   const handleSaveAsKnowledge = () => {
     if (!comment.trim()) return;
 
+    // Detect category automatically
+    const detectedCategory = detectCategory({
+      pattern: selectedText,
+      suggestion: comment,
+      priority: 'Media',
+      frequency: 'Ocasional',
+    });
+    
     // Save the annotation first
     let annotationId = existingAnnotation?.id;
     if (!annotationId) {
@@ -86,20 +132,26 @@ export function AnnotationPopover({
       });
     }
 
-    // Create a knowledge entry
+    // Create a knowledge entry with more context
+    const newEntryId = crypto.randomUUID();
     addEntry({
       type: type === 'warning' ? 'anti_pattern' : 'pattern',
-      title: comment.substring(0, 50) + (comment.length > 50 ? '...' : ''),
+      title: comment.substring(0, 60) + (comment.length > 60 ? '...' : ''),
       description: comment,
       example: selectedText,
-      tags: [type, 'annotation'],
+      tags: [
+        type,
+        'annotation',
+        detectedCategory,
+        project?.clientName ? `cliente-${project.clientName.toLowerCase().replace(/\s+/g, '-')}` : '',
+      ].filter(Boolean),
       feedbackType: type,
-      effectiveness: 'medium',
+      effectiveness: type === 'warning' ? 'high' : 'medium',
     });
 
     // Mark annotation as saved to knowledge
     if (annotationId) {
-      updateAnnotation(annotationId, { savedAsKnowledge: true });
+      updateAnnotation(annotationId, { savedAsKnowledge: true, knowledgeEntryId: newEntryId });
     }
 
     onClose();
@@ -108,6 +160,11 @@ export function AnnotationPopover({
   const currentType = annotationTypes.find((t) => t.type === type);
   const popoverRef = useRef<HTMLDivElement>(null);
   const [adjustedPosition, setAdjustedPosition] = useState({ x: position.x, y: position.y });
+
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [manualPosition, setManualPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Adjust position to keep popover within viewport
   useEffect(() => {
@@ -142,6 +199,43 @@ export function AnnotationPopover({
     setAdjustedPosition({ x: newX, y: newY });
   }, [position]);
 
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    const currentPos = manualPosition ?? adjustedPosition;
+    setDragStart({
+      x: e.clientX - currentPos.x,
+      y: e.clientY - currentPos.y,
+    });
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setManualPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y,
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragStart]);
+
+  // Use manual position if user has dragged, otherwise use auto-adjusted position
+  const finalPosition = manualPosition ?? adjustedPosition;
+
   return (
     <>
       {/* Backdrop */}
@@ -153,8 +247,8 @@ export function AnnotationPopover({
         ref={popoverRef}
         className="fixed z-50 rounded-xl shadow-xl animate-fadeIn"
         style={{
-          left: `${adjustedPosition.x}px`,
-          top: `${adjustedPosition.y}px`,
+          left: `${finalPosition.x}px`,
+          top: `${finalPosition.y}px`,
           width: '340px',
           maxWidth: 'calc(100vw - 32px)',
           background: 'var(--bg-elevated)',
@@ -163,10 +257,14 @@ export function AnnotationPopover({
           boxShadow: 'var(--shadow-lg)',
         }}
       >
-      {/* Header */}
+      {/* Header - Drag Handle */}
       <div
         className="flex items-center justify-between px-3 py-2 border-b"
-        style={{ borderColor: 'var(--border-subtle)' }}
+        style={{
+          borderColor: 'var(--border-subtle)',
+          cursor: isDragging ? 'grabbing' : 'grab',
+        }}
+        onMouseDown={handleMouseDown}
       >
         <div className="flex items-center gap-2">
           <div style={{ color: currentType?.color }}>{currentType?.icon}</div>
@@ -176,6 +274,7 @@ export function AnnotationPopover({
         </div>
         <button
           onClick={onClose}
+          onMouseDown={(e) => e.stopPropagation()}
           className="p-1 rounded-lg btn-ghost"
         >
           <X className="h-4 w-4" />
@@ -240,6 +339,22 @@ export function AnnotationPopover({
         className="px-3 py-3 border-t space-y-2"
         style={{ borderColor: 'var(--border-subtle)' }}
       >
+        {/* Apply Pattern button - only show if annotation has linked knowledge entry */}
+        {existingAnnotation?.knowledgeEntryId && (
+          <button
+            onClick={handleApplyPattern}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-xs font-semibold transition-all duration-200"
+            style={{
+              background: 'var(--gradient-primary)',
+              color: '#0a0e14',
+              boxShadow: 'var(--shadow-glow)',
+            }}
+          >
+            <Zap className="h-4 w-4" />
+            Aplicar Patrón
+          </button>
+        )}
+
         {/* Main action buttons */}
         <div className="flex gap-2">
           <button

@@ -10,6 +10,7 @@ import {
   ChevronDown,
   Check,
   Trash2,
+  MoreVertical,
 } from 'lucide-react';
 
 export function ProjectSelector() {
@@ -20,11 +21,13 @@ export function ProjectSelector() {
     deleteProject,
     setCurrentProject,
     saveVersionToProject,
+    updateProject,
   } = useKnowledgeStore();
   const { currentPrompt } = useAnalysisStore();
 
   const [isOpen, setIsOpen] = useState(false);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectClient, setNewProjectClient] = useState('');
 
@@ -60,13 +63,22 @@ export function ProjectSelector() {
     }
   };
 
+  const handleStatusChange = (newStatus: Project['status']) => {
+    if (currentProjectId) {
+      updateProject(currentProjectId, { status: newStatus });
+      setShowStatusMenu(false);
+    }
+  };
+
   const getStatusColor = (status: Project['status']) => {
     switch (status) {
-      case 'deployed':
+      case 'finalizado':
         return { bg: 'var(--success-subtle)', text: 'var(--success)', border: 'rgba(63, 185, 80, 0.2)' };
-      case 'in_progress':
+      case 'en_proceso':
         return { bg: 'var(--info-subtle)', text: 'var(--info)', border: 'rgba(88, 166, 255, 0.2)' };
-      case 'archived':
+      case 'revision_cliente':
+        return { bg: 'var(--warning-subtle)', text: 'var(--warning)', border: 'rgba(240, 180, 41, 0.2)' };
+      case 'archivado':
         return { bg: 'var(--bg-elevated)', text: 'var(--text-muted)', border: 'var(--border-subtle)' };
       default:
         return { bg: 'var(--warning-subtle)', text: 'var(--warning)', border: 'rgba(240, 180, 41, 0.2)' };
@@ -74,7 +86,69 @@ export function ProjectSelector() {
   };
 
   return (
-    <div className="relative">
+    <div className="flex items-center gap-2">
+      {/* Status Selector */}
+      {currentProject && (
+        <div className="relative">
+          <button
+            onClick={() => setShowStatusMenu(!showStatusMenu)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all duration-200"
+            style={{
+              background: getStatusColor(currentProject.status).bg,
+              color: getStatusColor(currentProject.status).text,
+              border: `1px solid ${getStatusColor(currentProject.status).border}`
+            }}
+          >
+            {currentProject.status === 'finalizado' ? 'Finalizado' :
+             currentProject.status === 'en_proceso' ? 'En proceso' :
+             currentProject.status === 'revision_cliente' ? 'Revisión' :
+             currentProject.status === 'archivado' ? 'Archivado' : currentProject.status}
+            <ChevronDown className="h-3 w-3" />
+          </button>
+
+          {showStatusMenu && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setShowStatusMenu(false)}
+              />
+              <div
+                className="absolute top-full right-0 mt-1 rounded-lg overflow-hidden z-20 animate-fadeIn"
+                style={{
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-default)',
+                  boxShadow: 'var(--shadow-lg)',
+                  minWidth: '140px'
+                }}
+              >
+                {(['en_proceso', 'revision_cliente', 'finalizado', 'archivado'] as Project['status'][]).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => handleStatusChange(status)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs transition-all duration-200 hover:bg-[var(--bg-tertiary)]"
+                    style={{
+                      color: currentProject.status === status ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      background: currentProject.status === status ? 'var(--accent-subtle)' : 'transparent'
+                    }}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: getStatusColor(status).text }}
+                    />
+                    {status === 'finalizado' ? 'Finalizado' :
+                     status === 'en_proceso' ? 'En proceso' :
+                     status === 'revision_cliente' ? 'Revisión cliente' :
+                     status === 'archivado' ? 'Archivado' : status}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Project Selector */}
+      <div className="relative">
       {/* Trigger */}
       <button
         onClick={() => setIsOpen(!isOpen)}
@@ -205,9 +279,10 @@ export function ProjectSelector() {
                                 border: `1px solid ${statusColors.border}`
                               }}
                             >
-                              {project.status === 'deployed' ? 'Deploy' :
-                               project.status === 'in_progress' ? 'WIP' :
-                               project.status === 'archived' ? 'Arch' : 'Draft'}
+                            {project.status === 'finalizado' ? 'Finalizado' :
+                             project.status === 'en_proceso' ? 'En proceso' :
+                             project.status === 'revision_cliente' ? 'Revisión' :
+                             project.status === 'archivado' ? 'Archivado' : project.status}
                             </span>
                           </div>
                           {project.clientName && (
@@ -235,6 +310,7 @@ export function ProjectSelector() {
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }

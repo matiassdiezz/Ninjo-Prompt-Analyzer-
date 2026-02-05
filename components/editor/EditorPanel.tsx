@@ -2,12 +2,17 @@
 
 import { useRef, useState, useMemo, useCallback, useEffect } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
+import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { parseSemanticSections, type SemanticSection } from '@/lib/semanticParser';
 import { enrichSectionsWithSuggestions } from '@/lib/suggestionMapper';
 import { estimateTokens } from '@/lib/hooks/useTokenEstimation';
+import { detectAntiPatterns, hasExistingAnnotation } from '@/lib/utils/antiPatternDetector';
 import { AnnotationPopover } from './AnnotationPopover';
 import { AnnotationMarkers, AnnotationsSidebar } from './AnnotationMarkers';
+import { ContextualSuggestions } from './ContextualSuggestions';
+import { ApplyLearningModal } from './ApplyLearningModal';
 import type { PromptAnnotation } from '@/types/prompt';
+import type { KnowledgeEntry } from '@/types/prompt';
 import {
   FileText,
   Hash,
@@ -61,12 +66,21 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     selectedSectionId,
     setSelectedSectionId,
     annotations,
+    addAnnotation,
+    getAnnotationsInRange,
+    pushUndo,
+    undo,
+    redo,
+    createVersion,
     promptHistory,
     hasUnsavedChanges,
     autoSaveEnabled,
     setAutoSaveEnabled,
     saveManualVersion,
   } = useAnalysisStore();
+  
+  const { getAntiPatterns, incrementUsage, getCurrentProject } = useKnowledgeStore();
+  const currentProject = getCurrentProject();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -78,6 +92,15 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [isPasting, setIsPasting] = useState(false);
+  
+  // Contextual suggestions state
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [applyLearningModal, setApplyLearningModal] = useState<{
+    learning: KnowledgeEntry;
+    section: SemanticSection;
+    originalText: string;
+    suggestedText: string;
+  } | null>(null);
 
   // Annotation state
   const [showAnnotationPopover, setShowAnnotationPopover] = useState(false);
@@ -85,7 +108,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const [selectedTextRange, setSelectedTextRange] = useState<{ start: number; end: number; text: string } | null>(null);
   const [editingAnnotation, setEditingAnnotation] = useState<PromptAnnotation | undefined>(undefined);
   const [isFullscreenEditor, setIsFullscreenEditor] = useState(false);
-  const [isWrapEnabled, setIsWrapEnabled] = useState(false);
+  const [isWrapEnabled, setIsWrapEnabled] = useState(true);
   const [justCopied, setJustCopied] = useState(false);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [isSectionSearchFocused, setIsSectionSearchFocused] = useState(false);
@@ -316,12 +339,14 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd/Ctrl + M to add annotation
       if ((e.metaKey || e.ctrlKey) && e.key === 'm') {
         e.preventDefault();
         if (selectedTextRange && !showAnnotationPopover) {
           handleAddAnnotation();
         }
       }
+      // Escape to close annotation popover
       if (e.key === 'Escape' && showAnnotationPopover) {
         handleCloseAnnotationPopover();
       }
@@ -332,10 +357,41 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           setShowSaveModal(true);
         }
       }
+      // Cmd/Ctrl + Z to undo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      // Cmd/Ctrl + Shift + Z or Ctrl + Y to redo
+      if ((e.metaKey || e.ctrlKey) && ((e.key === 'z' && e.shiftKey) || e.key === 'y')) {
+        e.preventDefault();
+        redo();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTextRange, showAnnotationPopover, handleAddAnnotation, handleCloseAnnotationPopover, hasUnsavedChanges]);
+  }, [selectedTextRange, showAnnotationPopover, handleAddAnnotation, handleCloseAnnotationPopover, hasUnsavedChanges, undo, redo]);
+
+  // Listen for navigate-to-section events from chat
+  useEffect(() => {
+    const handleNavigateToSection = (e: CustomEvent<{ section: string }>) => {
+      const sectionName = e.detail.section.toLowerCase();
+      
+      // Find section by title or tag name
+      const matchingSection = sections.find(s => {
+        const titleMatch = s.title.toLowerCase().includes(sectionName);
+        const tagMatch = s.tagName?.toLowerCase() === sectionName;
+        return titleMatch || tagMatch;
+      });
+      
+      if (matchingSection) {
+        handleSectionClick(matchingSection);
+      }
+    };
+    
+    window.addEventListener('navigate-to-section', handleNavigateToSection as EventListener);
+    return () => window.removeEventListener('navigate-to-section', handleNavigateToSection as EventListener);
+  }, [sections]);
 
   // Lock body scroll while fullscreen is active
   useEffect(() => {
@@ -425,6 +481,90 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     }
   }, [selectedSection, onSectionSelect]);
 
+  // Auto-detect anti-patterns in the prompt
+  useEffect(() => {
+    if (!currentPrompt || !hasContent) return;
+    
+    const antiPatterns = getAntiPatterns();
+    if (antiPatterns.length === 0) return;
+    
+    const detected = detectAntiPatterns(currentPrompt, antiPatterns, 0.65);
+    
+    // Create annotations for detected anti-patterns
+    detected.forEach(ap => {
+      // Only create if no existing annotation in that range
+      const existing = getAnnotationsInRange(ap.startOffset, ap.endOffset);
+      const alreadyAnnotated = hasExistingAnnotation(
+        ap.startOffset,
+        ap.endOffset,
+        annotations
+      );
+      
+      if (!alreadyAnnotated && existing.length === 0) {
+        addAnnotation({
+          startOffset: ap.startOffset,
+          endOffset: ap.endOffset,
+          selectedText: ap.matchedText,
+          comment: `⚠️ Anti-patrón detectado: ${ap.knowledgeEntry.title}`,
+          type: 'warning',
+          knowledgeEntryId: ap.knowledgeEntryId,
+        });
+      }
+    });
+  }, [currentPrompt, hasContent, getAntiPatterns, detectAntiPatterns, addAnnotation, getAnnotationsInRange, annotations]);
+
+  // Handler to apply a learning to the current section
+  const handleApplyLearning = useCallback((learning: KnowledgeEntry) => {
+    if (!selectedSection || !learning.example) return;
+    
+    // Get the current text of the section
+    const sectionText = currentPrompt.substring(
+      selectedSection.startIndex,
+      selectedSection.endIndex
+    );
+    
+    // Show confirmation modal with preview
+    setApplyLearningModal({
+      learning,
+      section: selectedSection,
+      originalText: sectionText,
+      suggestedText: learning.example,
+    });
+  }, [selectedSection, currentPrompt]);
+
+  // Confirm and apply the learning
+  const confirmApplyLearning = useCallback(() => {
+    if (!applyLearningModal) return;
+    
+    const { learning, section, suggestedText } = applyLearningModal;
+    
+    // Save state for undo
+    pushUndo();
+    
+    // Apply the change
+    const before = currentPrompt.substring(0, section.startIndex);
+    const after = currentPrompt.substring(section.endIndex);
+    const newPrompt = before + suggestedText + after;
+    
+    setPrompt(newPrompt);
+    
+    // Increment usage count
+    if (currentProject) {
+      incrementUsage(learning.id, currentProject.id);
+    }
+    
+    // Create version automatically
+    if (autoSaveEnabled) {
+      createVersion(
+        `Aplicado patrón: ${learning.title}`,
+        'suggestion_applied',
+        { category: learning.tags[0] || 'general' }
+      );
+    }
+    
+    // Close modal
+    setApplyLearningModal(null);
+  }, [applyLearningModal, currentPrompt, pushUndo, setPrompt, currentProject, incrementUsage, autoSaveEnabled, createVersion]);
 
   // Handle save
   const handleSave = () => {
@@ -620,6 +760,23 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
             >
               <span className="font-semibold">Wrap</span>
               <span style={{ opacity: 0.9 }}>{isWrapEnabled ? 'On' : 'Off'}</span>
+            </button>
+          )}
+
+          {/* Suggestions toggle */}
+          {hasContent && selectedSection && (
+            <button
+              onClick={() => setShowSuggestions(!showSuggestions)}
+              className={headerActionButtonClassName}
+              style={{
+                background: showSuggestions ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+                color: showSuggestions ? 'var(--accent-primary)' : 'var(--text-muted)',
+                border: `1px solid ${showSuggestions ? 'var(--border-accent)' : 'rgba(88, 166, 255, 0.18)'}`,
+              }}
+              title="Sugerencias contextuales"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Sugerencias</span>
             </button>
           )}
 
@@ -856,7 +1013,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
         )}
 
         {/* Editor Container */}
-        <div className="flex-1 flex min-w-0 relative">
+        <div className="flex-1 flex min-w-0 relative overflow-hidden">
+          <div className="flex-1 flex min-w-0 relative">
           {/* Line Numbers */}
           {hasContent && !isWrapEnabled && (
             <div
@@ -887,7 +1045,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           <div
             ref={editorContainerRef}
             className="flex-1 relative"
-            style={{ background: 'var(--bg-primary)' }}
+            style={{ background: 'var(--bg-editor)' }}
           >
 
             {/* Annotation Markers Overlay */}
@@ -1008,6 +1166,21 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               spellCheck={false}
             />
           </div>
+          </div>
+
+          {/* Contextual Suggestions Panel */}
+          {hasContent && showSuggestions && selectedSection && (
+            <div
+              className="w-80 border-l flex-shrink-0 overflow-hidden"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <ContextualSuggestions
+                currentSection={selectedSection}
+                onApplyLearning={handleApplyLearning}
+                onClose={() => setShowSuggestions(false)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1103,6 +1276,18 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           endOffset={selectedTextRange.end}
           existingAnnotation={editingAnnotation}
           onClose={handleCloseAnnotationPopover}
+        />
+      )}
+
+      {/* Apply Learning Modal */}
+      {applyLearningModal && (
+        <ApplyLearningModal
+          learning={applyLearningModal.learning}
+          section={applyLearningModal.section}
+          originalText={applyLearningModal.originalText}
+          suggestedText={applyLearningModal.suggestedText}
+          onConfirm={confirmApplyLearning}
+          onCancel={() => setApplyLearningModal(null)}
         />
       )}
     </div>

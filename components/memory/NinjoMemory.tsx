@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
-import type { KnowledgeEntry } from '@/types/prompt';
+import type { KnowledgeEntry, KnowledgeCategory } from '@/types/prompt';
+import { LearningComments } from './LearningComments';
+import { VotingButtons } from './VotingButtons';
+import { ImportKnowledge } from './ImportKnowledge';
+import { KNOWLEDGE_CATEGORIES, inferCategoryFromTags, getCategoryKeys } from '@/lib/utils/categories';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   Brain,
   Search,
@@ -21,7 +26,34 @@ import {
   Copy,
   ArrowLeft,
   BarChart3,
+  MessageSquare,
+  Upload,
+  List,
+  LayoutGrid,
+  Smile,
+  MessageCircle,
+  Key,
+  CheckCircle,
+  ShieldAlert,
+  GitBranch,
+  Target,
+  Layout,
+  Database,
 } from 'lucide-react';
+
+// Icon map for dynamic rendering
+const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+  Smile,
+  MessageCircle,
+  Key,
+  CheckCircle,
+  ShieldAlert,
+  GitBranch,
+  Target,
+  Layout,
+  Database,
+  Tag,
+};
 
 interface NinjoMemoryProps {
   onClose: () => void;
@@ -30,6 +62,11 @@ interface NinjoMemoryProps {
 type FilterType = 'all' | 'pattern' | 'anti_pattern';
 type SortType = 'recent' | 'usage' | 'effectiveness';
 type EffectivenessFilter = 'all' | 'high' | 'medium' | 'low';
+type ViewMode = 'list' | 'grouped';
+
+// LocalStorage key for view preferences
+const VIEW_PREF_KEY = 'ninjo-memory-view-mode';
+const COLLAPSED_CATS_KEY = 'ninjo-memory-collapsed-categories';
 
 export function NinjoMemory({ onClose }: NinjoMemoryProps) {
   const { entries, deleteEntry, searchEntries, exportKnowledgeBase } = useKnowledgeStore();
@@ -40,11 +77,86 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
   const [effectivenessFilter, setEffectivenessFilter] = useState<EffectivenessFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [commentCounts, setCommentCounts] = useState<Map<string, number>>(new Map());
+  const [showImport, setShowImport] = useState(false);
 
-  // Filter entries from chat (those with 'from-chat' tag)
+  // View mode and category filter
+  const [viewMode, setViewMode] = useState<ViewMode>('grouped');
+  const [categoryFilter, setCategoryFilter] = useState<KnowledgeCategory | null>(null);
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
+  // Confirm dialog state
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    entryId: string | null;
+    title: string;
+  }>({ isOpen: false, entryId: null, title: '' });
+
+  const handleDeleteClick = (entry: KnowledgeEntry) => {
+    setConfirmDialog({
+      isOpen: true,
+      entryId: entry.id,
+      title: entry.title,
+    });
+  };
+
+  const handleConfirmDelete = () => {
+    if (confirmDialog.entryId) {
+      deleteEntry(confirmDialog.entryId);
+    }
+    setConfirmDialog({ isOpen: false, entryId: null, title: '' });
+  };
+
+  const handleCancelDelete = () => {
+    setConfirmDialog({ isOpen: false, entryId: null, title: '' });
+  };
+
+  // Load view preferences from localStorage
+  useEffect(() => {
+    const savedViewMode = localStorage.getItem(VIEW_PREF_KEY);
+    if (savedViewMode === 'list' || savedViewMode === 'grouped') {
+      setViewMode(savedViewMode);
+    }
+
+    const savedCollapsed = localStorage.getItem(COLLAPSED_CATS_KEY);
+    if (savedCollapsed) {
+      try {
+        setCollapsedCategories(new Set(JSON.parse(savedCollapsed)));
+      } catch {
+        // ignore parse errors
+      }
+    }
+  }, []);
+
+  // Save view mode preference
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+    localStorage.setItem(VIEW_PREF_KEY, mode);
+  };
+
+  // Toggle category collapse
+  const toggleCategoryCollapse = (category: string) => {
+    setCollapsedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(category)) {
+        newSet.delete(category);
+      } else {
+        newSet.add(category);
+      }
+      localStorage.setItem(COLLAPSED_CATS_KEY, JSON.stringify([...newSet]));
+      return newSet;
+    });
+  };
+
+  // All entries (no longer filtered by 'from-chat' tag)
   const chatEntries = useMemo(() => {
-    return entries.filter((e) => e.tags.includes('from-chat'));
+    return entries;
   }, [entries]);
+
+  // Helper to get entry category
+  const getEntryCategory = (entry: KnowledgeEntry): KnowledgeCategory => {
+    return entry.category || inferCategoryFromTags(entry.tags);
+  };
 
   // Apply filters and search
   const filteredEntries = useMemo(() => {
@@ -60,8 +172,10 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
       result = result.filter((e) => e.effectiveness === effectivenessFilter);
     }
 
-    // Only show entries from chat
-    result = result.filter((e) => e.tags.includes('from-chat'));
+    // Filter by category
+    if (categoryFilter) {
+      result = result.filter((e) => getEntryCategory(e) === categoryFilter);
+    }
 
     // Sort
     switch (sortBy) {
@@ -80,7 +194,30 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
     }
 
     return result;
-  }, [chatEntries, searchQuery, filterType, sortBy, effectivenessFilter, searchEntries]);
+  }, [chatEntries, searchQuery, filterType, sortBy, effectivenessFilter, categoryFilter, searchEntries]);
+
+  // Group entries by category
+  const groupedEntries = useMemo(() => {
+    const groups: Record<string, KnowledgeEntry[]> = {};
+
+    for (const entry of filteredEntries) {
+      const cat = getEntryCategory(entry);
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(entry);
+    }
+
+    return groups;
+  }, [filteredEntries]);
+
+  // Get category counts from all entries (for chips)
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const entry of chatEntries) {
+      const cat = getEntryCategory(entry);
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [chatEntries]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -149,11 +286,21 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm btn-ghost transition-all duration-200"
+              title="Importar conocimientos"
+            >
+              <Download className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+              <span className="hidden sm:inline" style={{ color: 'var(--text-secondary)' }}>
+                Importar
+              </span>
+            </button>
+            <button
               onClick={() => exportKnowledgeBase()}
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm btn-ghost transition-all duration-200"
               title="Exportar para Self-Serve"
             >
-              <Download className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+              <Upload className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
               <span className="hidden sm:inline" style={{ color: 'var(--text-secondary)' }}>
                 Exportar
               </span>
@@ -314,26 +461,92 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
             {stats.highPriority} alta prioridad
           </span>
         </div>
-        {stats.topTags.length > 0 && (
-          <div className="flex items-center gap-2 ml-auto">
-            <Tag className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
-            <div className="flex gap-1">
-              {stats.topTags.slice(0, 3).map(([tag, count]) => (
-                <span
-                  key={tag}
-                  className="text-[10px] px-2 py-0.5 rounded-full"
-                  style={{
-                    background: 'var(--bg-elevated)',
-                    color: 'var(--text-tertiary)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  #{tag} ({count})
-                </span>
-              ))}
-            </div>
+        <div className="flex items-center gap-2 ml-auto">
+          {/* View Toggle */}
+          <div
+            className="flex rounded-lg overflow-hidden"
+            style={{ border: '1px solid var(--border-subtle)' }}
+          >
+            <button
+              onClick={() => handleViewModeChange('list')}
+              className="p-1.5 transition-all"
+              style={{
+                background: viewMode === 'list' ? 'var(--accent-subtle)' : 'var(--bg-primary)',
+                color: viewMode === 'list' ? 'var(--accent-primary)' : 'var(--text-muted)',
+              }}
+              title="Vista lista"
+            >
+              <List className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handleViewModeChange('grouped')}
+              className="p-1.5 transition-all"
+              style={{
+                background: viewMode === 'grouped' ? 'var(--accent-subtle)' : 'var(--bg-primary)',
+                color: viewMode === 'grouped' ? 'var(--accent-primary)' : 'var(--text-muted)',
+              }}
+              title="Vista agrupada"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
           </div>
-        )}
+        </div>
+      </div>
+
+      {/* Category Chips */}
+      <div
+        className="flex-shrink-0 px-6 py-2 flex items-center gap-2 border-b overflow-x-auto"
+        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)' }}
+      >
+        <button
+          onClick={() => setCategoryFilter(null)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap"
+          style={{
+            background: categoryFilter === null ? 'var(--accent-subtle)' : 'var(--bg-tertiary)',
+            color: categoryFilter === null ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            border: `1px solid ${categoryFilter === null ? 'var(--border-accent)' : 'var(--border-subtle)'}`,
+          }}
+        >
+          Todas
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded-full"
+            style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
+          >
+            {chatEntries.length}
+          </span>
+        </button>
+        {getCategoryKeys().map((cat) => {
+          const catInfo = KNOWLEDGE_CATEGORIES[cat];
+          const count = categoryCounts[cat] || 0;
+          if (count === 0) return null;
+
+          const IconComponent = CATEGORY_ICONS[catInfo.icon] || Tag;
+
+          return (
+            <button
+              key={cat}
+              onClick={() => setCategoryFilter(categoryFilter === cat ? null : cat)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap"
+              style={{
+                background: categoryFilter === cat ? `${catInfo.color}20` : 'var(--bg-tertiary)',
+                color: categoryFilter === cat ? catInfo.color : 'var(--text-secondary)',
+                border: `1px solid ${categoryFilter === cat ? `${catInfo.color}40` : 'var(--border-subtle)'}`,
+              }}
+            >
+              <IconComponent className="h-3 w-3" style={{ color: catInfo.color }} />
+              {catInfo.label}
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: categoryFilter === cat ? `${catInfo.color}30` : 'var(--bg-elevated)',
+                  color: categoryFilter === cat ? catInfo.color : 'var(--text-muted)',
+                }}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Entries List */}
@@ -347,20 +560,224 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
               <Brain className="h-8 w-8" style={{ color: 'var(--text-muted)' }} />
             </div>
             <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
-              {searchQuery || filterType !== 'all' || effectivenessFilter !== 'all'
+              {searchQuery || filterType !== 'all' || effectivenessFilter !== 'all' || categoryFilter
                 ? 'No se encontraron resultados'
                 : 'La memoria está vacía'}
             </h3>
             <p className="text-xs text-center max-w-xs" style={{ color: 'var(--text-tertiary)' }}>
-              {searchQuery || filterType !== 'all' || effectivenessFilter !== 'all'
+              {searchQuery || filterType !== 'all' || effectivenessFilter !== 'all' || categoryFilter
                 ? 'Intenta con otros filtros o términos de búsqueda'
                 : 'Los aprendizajes del chat de Ninjo QA aparecerán aquí cuando los guardes'}
             </p>
           </div>
+        ) : viewMode === 'grouped' ? (
+          /* Grouped View */
+          <div className="space-y-4">
+            {getCategoryKeys().map((cat) => {
+              const entriesInCat = groupedEntries[cat];
+              if (!entriesInCat || entriesInCat.length === 0) return null;
+
+              const catInfo = KNOWLEDGE_CATEGORIES[cat];
+              const IconComponent = CATEGORY_ICONS[catInfo.icon] || Tag;
+              const isCollapsed = collapsedCategories.has(cat);
+
+              return (
+                <div
+                  key={cat}
+                  className="rounded-xl overflow-hidden"
+                  style={{
+                    background: 'var(--bg-secondary)',
+                    border: '1px solid var(--border-subtle)',
+                    borderLeft: `3px solid ${catInfo.color}`,
+                  }}
+                >
+                  {/* Category Header */}
+                  <button
+                    onClick={() => toggleCategoryCollapse(cat)}
+                    className="w-full flex items-center justify-between px-4 py-3 transition-all hover:bg-black/5"
+                  >
+                    <div className="flex items-center gap-2">
+                      <IconComponent className="h-4 w-4" style={{ color: catInfo.color }} />
+                      <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {catInfo.label}
+                      </span>
+                      <span
+                        className="text-[10px] px-2 py-0.5 rounded-full"
+                        style={{
+                          background: `${catInfo.color}20`,
+                          color: catInfo.color,
+                        }}
+                      >
+                        {entriesInCat.length}
+                      </span>
+                    </div>
+                    {isCollapsed ? (
+                      <ChevronRight className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+                    )}
+                  </button>
+
+                  {/* Category Entries */}
+                  {!isCollapsed && (
+                    <div className="border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                      {entriesInCat.map((entry) => {
+                        const isExpanded = expandedId === entry.id;
+                        return (
+                          <div
+                            key={entry.id}
+                            className="border-b last:border-b-0"
+                            style={{ borderColor: 'var(--border-subtle)' }}
+                          >
+                            {/* Entry Header */}
+                            <div
+                              className="px-4 py-3 cursor-pointer transition-all hover:bg-black/5"
+                              onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                            >
+                              <div className="flex items-start gap-3">
+                                {entry.type === 'pattern' ? (
+                                  <div
+                                    className="p-1.5 rounded-lg flex-shrink-0"
+                                    style={{ background: 'var(--success-subtle)' }}
+                                  >
+                                    <Lightbulb className="h-4 w-4" style={{ color: 'var(--success)' }} />
+                                  </div>
+                                ) : (
+                                  <div
+                                    className="p-1.5 rounded-lg flex-shrink-0"
+                                    style={{ background: 'var(--error-subtle)' }}
+                                  >
+                                    <AlertTriangle className="h-4 w-4" style={{ color: 'var(--error)' }} />
+                                  </div>
+                                )}
+
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <h3 className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                                      {entry.title}
+                                    </h3>
+                                    <span
+                                      className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
+                                      style={{
+                                        background:
+                                          entry.effectiveness === 'high'
+                                            ? 'var(--error-subtle)'
+                                            : entry.effectiveness === 'medium'
+                                            ? 'var(--warning-subtle)'
+                                            : 'var(--bg-elevated)',
+                                        color:
+                                          entry.effectiveness === 'high'
+                                            ? 'var(--error)'
+                                            : entry.effectiveness === 'medium'
+                                            ? 'var(--warning)'
+                                            : 'var(--text-tertiary)',
+                                      }}
+                                    >
+                                      {entry.effectiveness === 'high' ? 'Alta' : entry.effectiveness === 'medium' ? 'Media' : 'Baja'}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs line-clamp-2" style={{ color: 'var(--text-tertiary)' }}>
+                                    {entry.description}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                                    {formatDate(entry.createdAt)}
+                                  </span>
+                                  {isExpanded ? (
+                                    <ChevronDown className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Expanded Content (in grouped view) */}
+                            {isExpanded && (
+                              <div
+                                className="px-4 pb-4 pt-2 border-t animate-slideDown"
+                                style={{ borderColor: 'var(--border-subtle)' }}
+                              >
+                                <div className="space-y-3">
+                                  <div>
+                                    <label className="text-[10px] uppercase tracking-wider font-medium mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                                      Sugerencia para Self-Serve
+                                    </label>
+                                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                                      {entry.description}
+                                    </p>
+                                  </div>
+                                  {entry.example && (
+                                    <div>
+                                      <label className="text-[10px] uppercase tracking-wider font-medium mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                                        Ejemplo
+                                      </label>
+                                      <div className="relative">
+                                        <pre
+                                          className="text-xs p-3 rounded-lg overflow-x-auto"
+                                          style={{
+                                            background: 'var(--bg-tertiary)',
+                                            color: 'var(--text-primary)',
+                                            fontFamily: 'var(--font-mono)',
+                                          }}
+                                        >
+                                          {entry.example}
+                                        </pre>
+                                        <button
+                                          onClick={(e) => { e.stopPropagation(); handleCopy(entry.example!); }}
+                                          className="absolute top-2 right-2 p-1.5 rounded-lg transition-all"
+                                          style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
+                                        >
+                                          <Copy className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                                    <VotingButtons learningId={entry.id} />
+                                  </div>
+                                  <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                                    <LearningComments learningId={entry.id} onCommentAdded={() => {}} />
+                                  </div>
+                                  <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleCopy(`${entry.title}\n\n${entry.description}`); }}
+                                      className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-all"
+                                      style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}
+                                    >
+                                      <Copy className="h-3 w-3" />
+                                      Copiar
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleDeleteClick(entry); }}
+                                      className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-all"
+                                      style={{ background: 'var(--error-subtle)', color: 'var(--error)', border: '1px solid rgba(248, 81, 73, 0.2)' }}
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ) : (
+          /* List View */
           <div className="grid gap-3">
             {filteredEntries.map((entry) => {
               const isExpanded = expandedId === entry.id;
+              const entryCat = getEntryCategory(entry);
+              const catInfo = KNOWLEDGE_CATEGORIES[entryCat];
 
               return (
                 <div
@@ -394,7 +811,7 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <h3 className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                             {entry.title}
                           </h3>
@@ -416,6 +833,15 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                             }}
                           >
                             {entry.effectiveness === 'high' ? 'Alta' : entry.effectiveness === 'medium' ? 'Media' : 'Baja'}
+                          </span>
+                          <span
+                            className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{
+                              background: `${catInfo.color}20`,
+                              color: catInfo.color,
+                            }}
+                          >
+                            {catInfo.label}
                           </span>
                         </div>
                         <p className="text-xs line-clamp-2" style={{ color: 'var(--text-tertiary)' }}>
@@ -556,6 +982,31 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                           )}
                         </div>
 
+                        {/* Voting */}
+                        <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                          <label className="text-[10px] uppercase tracking-wider font-medium mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                            ¿Qué tan útil es este aprendizaje?
+                          </label>
+                          <VotingButtons learningId={entry.id} />
+                        </div>
+
+                        {/* Comments */}
+                        <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+                          <label className="text-[10px] uppercase tracking-wider font-medium mb-2 block" style={{ color: 'var(--text-muted)' }}>
+                            Comentarios del equipo
+                          </label>
+                          <LearningComments 
+                            learningId={entry.id}
+                            onCommentAdded={() => {
+                              setCommentCounts(prev => {
+                                const newMap = new Map(prev);
+                                newMap.set(entry.id, (newMap.get(entry.id) || 0) + 1);
+                                return newMap;
+                              });
+                            }}
+                          />
+                        </div>
+
                         {/* Actions */}
                         <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                           <button
@@ -571,11 +1022,7 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                             Copiar
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm('¿Eliminar este aprendizaje?')) {
-                                deleteEntry(entry.id);
-                              }
-                            }}
+                            onClick={() => handleDeleteClick(entry)}
                             className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-lg transition-all"
                             style={{
                               background: 'var(--error-subtle)',
@@ -596,6 +1043,22 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
           </div>
         )}
       </div>
+      {/* Import Modal */}
+      {showImport && (
+        <ImportKnowledge onClose={() => setShowImport(false)} />
+      )}
+
+      {/* Confirm Delete Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        title="Eliminar aprendizaje"
+        message={`¿Estás seguro de que quieres eliminar "${confirmDialog.title}"? Esta acción no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        cancelLabel="Cancelar"
+        variant="danger"
+      />
     </div>
   );
 }

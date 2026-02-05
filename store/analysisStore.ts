@@ -84,7 +84,7 @@ interface AnalysisStore {
   getAnnotationsInRange: (startOffset: number, endOffset: number) => PromptAnnotation[];
 
   // Actions - Chat
-  addChatMessage: (message: Omit<ChatMessage, 'id'>) => void;
+  addChatMessage: (message: Omit<ChatMessage, 'id'>) => string;
   clearChatMessages: () => void;
   getChatMessages: () => ChatMessage[];
 
@@ -405,6 +405,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
         set((state) => ({
           chatMessages: [...state.chatMessages, message],
         }));
+        return message.id;
       },
 
       clearChatMessages: () => {

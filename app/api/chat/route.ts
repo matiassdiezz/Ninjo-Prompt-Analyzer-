@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { extractLearningsFromChatResponse, type ExtractedLearning } from '@/lib/utils/learningExtractor';
+import { detectDuplicatePatterns, generateTestingSuggestions } from '@/lib/utils/duplicatePatternDetector';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -369,7 +370,44 @@ Para preguntas simples, saltá directo a la respuesta.
 Siempre incluí en tu output:
 - Respuesta clara
 - Nivel de confianza
-- Caveats clave`;
+- Caveats clave
+
+---
+
+# INTERFAZ DE CHAT - CAPACIDADES DE LA UI
+
+El usuario interactúa con vos a través de una interfaz con estas capacidades:
+
+## 1. Bloques de código interactivos
+Cuando mostrás código (bloques con triple backtick), la UI automáticamente agrega:
+- Boton "Aplicar": Reemplaza el prompt actual con ese código
+- Boton "Guardar en memoria": Guarda ese snippet como knowledge entry
+
+COMO APROVECHAR ESTO:
+- Siempre que propongas código para el prompt, usá bloques de código con formato
+- Si el código es una corrección completa del prompt, aclará: "Podés aplicar este código directamente"
+- Si es un patrón útil para reutilizar, sugerí: "Guardá esto en memoria para futuros prompts"
+
+## 2. Navegación a secciones del prompt
+Cuando mencionás secciones del prompt por su nombre (ej: "en la sección de Style and Tone", "dentro de system_prompt", "la parte de Hard Rules"), la UI detecta estas menciones y las convierte en links clickeables que navegan directamente a esa sección en el editor.
+
+COMO APROVECHAR ESTO:
+- Referenciá explícitamente las secciones cuando des instrucciones: "En Conversation Logic, agregá la regla..."
+- Nombrá las secciones exactamente como aparecen en el prompt (ej: system_prompt, Style and Tone, etc.)
+- Esto permite al usuario hacer clic y ver inmediatamente dónde aplicar el cambio
+
+## 3. Referencias precisas = navegación rápida
+Combinando ambas capacidades, podés estructurar tus respuestas así:
+
+En la sección Conversation Logic:
+1. Eliminá estas líneas:
+[mostrar código en bloque]
+2. Reemplazalas con:
+[mostrar código en bloque]
+
+Esto genera:
+- Un link clickeable a "Conversation Logic"
+- Dos bloques de código con botones Aplicar/Guardar`;
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -379,10 +417,34 @@ interface ChatMessage {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { prompt, question, history = [] } = body as {
+    const { prompt, question, history = [], relevantLearnings = [], allKnowledge = [], historicalDecisions = [], projectId } = body as {
       prompt: string;
       question: string;
       history: ChatMessage[];
+      relevantLearnings?: Array<{
+        id: string;
+        type: 'pattern' | 'anti_pattern';
+        title: string;
+        description: string;
+        example?: string;
+        effectiveness: 'high' | 'medium' | 'low';
+        usageCount: number;
+      }>;
+      allKnowledge?: Array<{
+        id: string;
+        type: 'pattern' | 'anti_pattern';
+        title: string;
+        description: string;
+        tags: string[];
+      }>;
+      historicalDecisions?: Array<{
+        decision: 'accepted' | 'rejected' | 'modified';
+        category: string;
+        originalText: string;
+        suggestedText: string;
+        justification: string;
+      }>;
+      projectId?: string;
     };
 
     if (!prompt || !question) {
@@ -405,15 +467,46 @@ export async function POST(request: NextRequest) {
     // Build messages array with history
     const messages: { role: 'user' | 'assistant'; content: string }[] = [];
 
+    // Build initial context with prompt and relevant learnings
+    let initialContext = `Este es el prompt del agente de Ninjo que estoy trabajando:\n\n<prompt>\n${prompt}\n</prompt>`;
+    
+    // Inject relevant learnings if available
+    if (relevantLearnings && relevantLearnings.length > 0) {
+      initialContext += `\n\n---\n\n# Conocimiento Previo del Equipo\n\nEl equipo de QA ha documentado estos patrones relevantes para este tipo de prompts:\n\n`;
+      
+      relevantLearnings.forEach((learning, index) => {
+        const emoji = learning.type === 'pattern' ? '✅' : '⚠️';
+        const typeLabel = learning.type === 'pattern' ? 'Patrón' : 'Anti-patrón';
+        const priority = learning.effectiveness === 'high' ? '(Alta prioridad)' : 
+                        learning.effectiveness === 'medium' ? '(Media prioridad)' : '(Baja prioridad)';
+        
+        initialContext += `${emoji} **${typeLabel} ${index + 1}** ${priority}\n`;
+        initialContext += `**Título:** ${learning.title}\n`;
+        initialContext += `**Descripción:** ${learning.description}\n`;
+        
+        if (learning.example) {
+          initialContext += `**Ejemplo:**\n\`\`\`\n${learning.example}\n\`\`\`\n`;
+        }
+        
+        if (learning.usageCount > 0) {
+          initialContext += `**Usado ${learning.usageCount} veces en otros proyectos**\n`;
+        }
+        
+        initialContext += `\n`;
+      });
+      
+      initialContext += `\n**IMPORTANTE:** Usa este conocimiento previo para dar mejores sugerencias. Si detectas que el prompt actual tiene alguno de estos anti-patrones, mencionalo. Si puedes aplicar alguno de estos patrones, sugiérelo.`;
+    }
+
     // Add the initial context message with the prompt
     messages.push({
       role: 'user',
-      content: `Este es el prompt del agente de Ninjo que estoy trabajando:\n\n<prompt>\n${prompt}\n</prompt>`,
+      content: initialContext,
     });
 
     messages.push({
       role: 'assistant',
-      content: 'Perfecto, ya leí el prompt del agente. ¿Qué necesitas? Puedo hacer QA, iterar basado en feedback, generar casos de testing, o diagnosticar problemas.',
+      content: 'Perfecto, ya leí el prompt del agente' + (relevantLearnings && relevantLearnings.length > 0 ? ' y el conocimiento previo del equipo' : '') + '. ¿Qué necesitas? Puedo hacer QA, iterar basado en feedback, generar casos de testing, o diagnosticar problemas.',
     });
 
     // Add conversation history
@@ -445,9 +538,21 @@ export async function POST(request: NextRequest) {
     // Extract learnings from the response
     const learnings = extractLearningsFromChatResponse(textContent.text);
 
+    // Detect duplicate patterns
+    const duplicates = learnings.length > 0 && allKnowledge.length > 0
+      ? detectDuplicatePatterns(learnings, allKnowledge as any, 0.5)
+      : [];
+
+    // Generate testing suggestions based on historical decisions
+    const testingSuggestions = historicalDecisions.length > 0
+      ? generateTestingSuggestions(prompt, historicalDecisions, 5)
+      : [];
+
     return NextResponse.json({
       response: textContent.text,
       learnings: learnings.length > 0 ? learnings : undefined,
+      duplicates: duplicates.length > 0 ? duplicates : undefined,
+      testingSuggestions: testingSuggestions.length > 0 ? testingSuggestions : undefined,
     });
   } catch (error) {
     console.error('Chat error:', error);

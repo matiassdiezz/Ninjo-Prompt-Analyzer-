@@ -39,7 +39,7 @@ export interface Project {
   name: string;
   description: string;
   clientName?: string;
-  status: 'draft' | 'in_progress' | 'deployed' | 'archived';
+  status: 'en_proceso' | 'revision_cliente' | 'finalizado' | 'archivado';
   createdAt: number;
   updatedAt: number;
   currentPrompt: string;
@@ -50,6 +50,19 @@ export interface Project {
   // Chat messages are project-specific
   chatMessages?: ChatMessage[];
 }
+
+// Knowledge category types
+export type KnowledgeCategory =
+  | 'tono'
+  | 'saludo'
+  | 'keywords'
+  | 'calificacion'
+  | 'objeciones'
+  | 'flujo'
+  | 'conversion'
+  | 'formato'
+  | 'knowledge_base'
+  | 'general';
 
 // Knowledge base entry
 export interface KnowledgeEntry {
@@ -64,6 +77,7 @@ export interface KnowledgeEntry {
   createdAt: number;
   usageCount: number;
   projectIds: string[]; // Which projects used this
+  category?: KnowledgeCategory; // Primary category for organization
 }
 
 // Suggestion decision for learning
@@ -108,4 +122,32 @@ export interface Prompt {
   content: string;
   createdAt: number;
   updatedAt: number;
+}
+
+// Fase 4: Colaboración - Comentarios en learnings
+export interface LearningComment {
+  id: string;
+  learningId: string;
+  deviceId: string;
+  authorName?: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Fase 4: Colaboración - Votos de efectividad
+export interface LearningVote {
+  id: string;
+  learningId: string;
+  deviceId: string;
+  vote: -1 | 1;
+  createdAt: number;
+}
+
+// Fase 4: Colaboración - Progreso de onboarding
+export interface OnboardingProgress {
+  deviceId: string;
+  learningId: string;
+  markedRead: boolean;
+  readAt?: number;
 }

@@ -44,6 +44,7 @@ interface SyncState {
   lastSyncedAt: number | null;
   pendingOperations: PendingOperation[];
   syncError: string | null;
+  lastError: { operation: string; message: string; timestamp: number } | null;
 }
 
 interface KnowledgeStore {
@@ -80,6 +81,7 @@ interface KnowledgeStore {
   getEntriesByFeedbackType: (feedbackType: string) => KnowledgeEntry[];
   getPatterns: () => KnowledgeEntry[];
   getAntiPatterns: () => KnowledgeEntry[];
+  findRelevantLearnings: (sectionTitle: string, sectionContent: string, sectionType?: string, limit?: number) => KnowledgeEntry[];
 
   // Actions - Export/Import
   exportCurrentProject: () => void;
@@ -114,6 +116,32 @@ function createPendingOperation(
   };
 }
 
+// Helper: ordenar versiones topológicamente (padres antes que hijos)
+function topologicalSortVersions(versionOps: PendingOperation[]): PendingOperation[] {
+  const sorted: PendingOperation[] = [];
+  const visited = new Set<string>();
+  const opMap = new Map(versionOps.map(op => [op.entityId, op]));
+
+  function visit(op: PendingOperation) {
+    if (visited.has(op.entityId)) return;
+    visited.add(op.entityId);
+
+    // Si tiene parent, visitar primero
+    const parentId = (op.data as { parentVersionId?: string })?.parentVersionId;
+    if (parentId && opMap.has(parentId)) {
+      visit(opMap.get(parentId)!);
+    }
+
+    sorted.push(op);
+  }
+
+  for (const op of versionOps) {
+    visit(op);
+  }
+
+  return sorted;
+}
+
 export const useKnowledgeStore = create<KnowledgeStore>()(
   persist(
     (set, get) => ({
@@ -129,6 +157,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         lastSyncedAt: null,
         pendingOperations: [],
         syncError: null,
+        lastError: null,
       },
 
       // Knowledge Entries
@@ -252,7 +281,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           name,
           description,
           clientName,
-          status: 'draft',
+          status: 'en_proceso',
           createdAt: Date.now(),
           updatedAt: Date.now(),
           currentPrompt: '',
@@ -278,6 +307,32 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       },
 
       updateProject: (id, updates) => {
+        const project = get().projects.find((p) => p.id === id);
+        if (!project) return;
+
+        // Detectar versiones nuevas que necesitan sincronizarse
+        const newVersionOps: PendingOperation[] = [];
+        if (updates.versions && Array.isArray(updates.versions)) {
+          const existingVersionIds = new Set(project.versions.map(v => v.id));
+          const pendingVersionIds = new Set(
+            get().sync.pendingOperations
+              .filter(op => op.entity === 'version' && op.type === 'create')
+              .map(op => op.entityId)
+          );
+
+          for (const version of updates.versions) {
+            // Solo crear operación si es nueva Y no está ya pendiente
+            if (!existingVersionIds.has(version.id) && !pendingVersionIds.has(version.id)) {
+              newVersionOps.push(
+                createPendingOperation('create', 'version', version.id, { ...version, projectId: id })
+              );
+            }
+          }
+        }
+
+        // Excluir versions/annotations/chatMessages del update del proyecto (se manejan por separado)
+        const { versions: _versions, annotations: _annotations, chatMessages: _chatMessages, ...projectUpdates } = updates;
+
         set((state) => ({
           projects: state.projects.map((p) =>
             p.id === id ? { ...p, ...updates, updatedAt: Date.now() } : p
@@ -286,7 +341,11 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             ...state.sync,
             pendingOperations: [
               ...state.sync.pendingOperations,
-              createPendingOperation('update', 'project', id, updates),
+              ...newVersionOps,
+              // Solo crear operación de update si hay campos del proyecto que actualizar
+              ...(Object.keys(projectUpdates).length > 0
+                ? [createPendingOperation('update', 'project', id, projectUpdates)]
+                : []),
             ],
           },
         }));
@@ -386,6 +445,64 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
 
       getAntiPatterns: () => {
         return get().entries.filter((e) => e.type === 'anti_pattern');
+      },
+
+      findRelevantLearnings: (sectionTitle, sectionContent, sectionType, limit = 5) => {
+        const { entries } = get();
+        
+        // Extract keywords from section
+        const extractKeywords = (text: string): string[] => {
+          const words = text
+            .toLowerCase()
+            .replace(/[^\w\sáéíóúñ]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 3);
+          
+          const stopWords = new Set(['para', 'que', 'con', 'por', 'como', 'este', 'esta', 'esto', 'the', 'and', 'for', 'with']);
+          return words.filter(w => !stopWords.has(w));
+        };
+        
+        const sectionKeywords = extractKeywords(sectionTitle + ' ' + sectionContent);
+        
+        // Calculate relevance score for each entry
+        const scored = entries.map(entry => {
+          let score = 0;
+          
+          // Match by tags
+          const sectionTags = [
+            sectionType,
+            ...sectionKeywords.slice(0, 5)
+          ].filter(Boolean);
+          
+          const matchingTags = entry.tags.filter(t => 
+            sectionTags.some(st => st && st.toLowerCase().includes(t.toLowerCase()))
+          );
+          score += matchingTags.length * 10;
+          
+          // Match by keywords in title/description
+          const entryText = (entry.title + ' ' + entry.description).toLowerCase();
+          sectionKeywords.forEach(kw => {
+            if (entryText.includes(kw.toLowerCase())) {
+              score += 5;
+            }
+          });
+          
+          // Boost by effectiveness
+          score += entry.effectiveness === 'high' ? 15 : 
+                   entry.effectiveness === 'medium' ? 10 : 5;
+          
+          // Boost by usage frequency
+          score += Math.min(entry.usageCount * 2, 20);
+          
+          return { entry, score };
+        });
+        
+        // Filter by minimum score and sort
+        return scored
+          .filter(s => s.score > 10)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit)
+          .map(s => s.entry);
       },
 
       // Export/Import
@@ -580,7 +697,36 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       syncToSupabase: async () => {
         const { sync } = get();
 
-        if (!isSupabaseConfigured() || sync.isSyncing || !sync.isOnline) {
+        if (!isSupabaseConfigured()) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              lastError: {
+                operation: 'syncToSupabase',
+                message: 'Supabase no está configurado',
+                timestamp: Date.now(),
+              },
+            },
+          }));
+          return;
+        }
+
+        if (sync.isSyncing) {
+          // Already syncing, don't start another sync
+          return;
+        }
+
+        if (!sync.isOnline) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              lastError: {
+                operation: 'syncToSupabase',
+                message: 'Sin conexión a internet',
+                timestamp: Date.now(),
+              },
+            },
+          }));
           return;
         }
 
@@ -619,6 +765,16 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
 
         const deviceId = getSupabaseDeviceId();
         if (!deviceId) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              lastError: {
+                operation: 'processPendingOperations',
+                message: 'Device ID no encontrado',
+                timestamp: Date.now(),
+              },
+            },
+          }));
           return;
         }
 
@@ -628,7 +784,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
 
         // Sort operations by dependency order:
         // 1. Projects first (versions depend on them)
-        // 2. Versions second
+        // 2. Versions second (sorted topologically so parents come before children)
         // 3. Knowledge and decisions last
         const entityOrder: Record<string, number> = {
           project: 1,
@@ -637,94 +793,135 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           decision: 4,
         };
 
-        const operations = [...sync.pendingOperations].sort((a, b) => {
+        // First, separate operations by entity type
+        const pendingOps = [...sync.pendingOperations];
+        const versionOps = pendingOps.filter(op => op.entity === 'version');
+        const otherOps = pendingOps.filter(op => op.entity !== 'version');
+
+        // Sort non-version operations by entity order
+        otherOps.sort((a, b) => {
           return (entityOrder[a.entity] || 99) - (entityOrder[b.entity] || 99);
         });
 
+        // Topological sort of versions by parentVersionId (parents before children)
+        const sortedVersionOps = topologicalSortVersions(versionOps);
+
+        // Combine: projects first, then sorted versions, then knowledge/decisions
+        const operations = [
+          ...otherOps.filter(op => entityOrder[op.entity] < 2), // projects
+          ...sortedVersionOps,                                   // versions (topologically sorted)
+          ...otherOps.filter(op => entityOrder[op.entity] > 2),  // knowledge, decisions
+        ];
+
         const processedIds: string[] = [];
+        const failedOperations: { op: PendingOperation; error: string }[] = [];
+        const MAX_RETRIES = 3;
 
         for (const op of operations) {
-          try {
-            let success = false;
+          let success = false;
+          let lastError = '';
 
-            switch (op.entity) {
-              case 'project': {
-                if (op.type === 'create') {
-                  const projectData = op.data as Project;
-                  const result = await projectsRepository.create(
-                    projectData,
-                    deviceId
-                  );
-                  success = !!result;
-                } else if (op.type === 'update') {
-                  success = await projectsRepository.update(op.entityId, op.data as Partial<Project>);
-                } else if (op.type === 'delete') {
-                  success = await projectsRepository.delete(op.entityId);
+          // Retry loop
+          for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+            try {
+              switch (op.entity) {
+                case 'project': {
+                  if (op.type === 'create') {
+                    const projectData = op.data as Project;
+                    const result = await projectsRepository.create(
+                      projectData,
+                      deviceId
+                    );
+                    success = !!result;
+                  } else if (op.type === 'update') {
+                    success = await projectsRepository.update(op.entityId, op.data as Partial<Project>);
+                  } else if (op.type === 'delete') {
+                    success = await projectsRepository.delete(op.entityId);
+                  }
+                  break;
                 }
-                break;
+                case 'version': {
+                  if (op.type === 'create') {
+                    const versionData = op.data as PromptVersion & { projectId: string };
+                    const result = await versionsRepository.createWithId(
+                      versionData,
+                      versionData.projectId
+                    );
+                    success = !!result;
+                  }
+                  break;
+                }
+                case 'knowledge': {
+                  if (op.type === 'create') {
+                    const entryData = op.data as KnowledgeEntry;
+                    const result = await knowledgeRepository.createWithId(entryData, deviceId);
+                    success = !!result;
+                  } else if (op.type === 'update') {
+                    success = await knowledgeRepository.update(op.entityId, op.data as Partial<KnowledgeEntry>);
+                  } else if (op.type === 'delete') {
+                    success = await knowledgeRepository.delete(op.entityId);
+                  }
+                  break;
+                }
+                case 'decision': {
+                  if (op.type === 'create') {
+                    const decisionData = op.data as SuggestionDecision;
+                    const result = await decisionsRepository.createWithId(decisionData, deviceId);
+                    success = !!result;
+                  } else if (op.type === 'update') {
+                    success = await decisionsRepository.update(op.entityId, op.data as Partial<SuggestionDecision>);
+                  } else if (op.type === 'delete') {
+                    success = await decisionsRepository.delete(op.entityId);
+                  }
+                  break;
+                }
               }
-              case 'version': {
-                if (op.type === 'create') {
-                  const versionData = op.data as PromptVersion & { projectId: string };
-                  const result = await versionsRepository.createWithId(
-                    versionData,
-                    versionData.projectId
-                  );
-                  success = !!result;
-                }
-                break;
-              }
-              case 'knowledge': {
-                if (op.type === 'create') {
-                  const entryData = op.data as KnowledgeEntry;
-                  const result = await knowledgeRepository.createWithId(entryData, deviceId);
-                  success = !!result;
-                } else if (op.type === 'update') {
-                  success = await knowledgeRepository.update(op.entityId, op.data as Partial<KnowledgeEntry>);
-                } else if (op.type === 'delete') {
-                  success = await knowledgeRepository.delete(op.entityId);
-                }
-                break;
-              }
-              case 'decision': {
-                if (op.type === 'create') {
-                  const decisionData = op.data as SuggestionDecision;
-                  const result = await decisionsRepository.createWithId(decisionData, deviceId);
-                  success = !!result;
-                } else if (op.type === 'update') {
-                  success = await decisionsRepository.update(op.entityId, op.data as Partial<SuggestionDecision>);
-                } else if (op.type === 'delete') {
-                  success = await decisionsRepository.delete(op.entityId);
-                }
-                break;
+            } catch (error) {
+              lastError = error instanceof Error ? error.message : 'Error desconocido';
+              console.error(`Error processing operation ${op.id} (attempt ${attempt}/${MAX_RETRIES}):`, error);
+
+              // Wait before retry (exponential backoff)
+              if (attempt < MAX_RETRIES) {
+                await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 100));
               }
             }
+          }
 
-            if (success) {
-              processedIds.push(op.id);
-            }
-          } catch (error) {
-            console.error(`Error processing operation ${op.id}:`, error);
-            // Continue with other operations
+          if (success) {
+            processedIds.push(op.id);
+          } else {
+            failedOperations.push({ op, error: lastError || 'Operación falló después de reintentos' });
           }
         }
 
-        // Remove processed operations
+        // Update state with results
+        const remainingOps = sync.pendingOperations.filter(
+          (op) => !processedIds.includes(op.id)
+        );
+
         set((state) => ({
           sync: {
             ...state.sync,
             isSyncing: false,
             lastSyncedAt: processedIds.length > 0 ? Date.now() : state.sync.lastSyncedAt,
-            pendingOperations: state.sync.pendingOperations.filter(
-              (op) => !processedIds.includes(op.id)
-            ),
+            pendingOperations: remainingOps,
+            lastError: failedOperations.length > 0
+              ? {
+                  operation: `${failedOperations[0].op.type} ${failedOperations[0].op.entity}`,
+                  message: failedOperations[0].error,
+                  timestamp: Date.now(),
+                }
+              : state.sync.lastError,
+            syncError: failedOperations.length > 0
+              ? `${failedOperations.length} operación(es) fallaron`
+              : null,
           },
         }));
       },
 
       clearSyncError: () => {
         set((state) => ({
-          sync: { ...state.sync, syncError: null },
+          sync: { ...state.sync, syncError: null, lastError: null },
         }));
       },
     }),

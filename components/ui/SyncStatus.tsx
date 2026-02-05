@@ -1,12 +1,15 @@
 'use client';
 
 import { useKnowledgeStore } from '@/store/knowledgeStore';
-import { Cloud, CloudOff, RefreshCw, Check, AlertCircle } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Check, AlertCircle, List } from 'lucide-react';
 import { isSupabaseConfigured } from '@/lib/supabase/client';
+import { useState } from 'react';
+import { PendingOperationsModal } from './PendingOperationsModal';
 
 export function SyncStatus() {
   const { sync, clearSyncError } = useKnowledgeStore();
   const { isOnline, isSyncing, lastSyncedAt, pendingOperations, syncError } = sync;
+  const [showModal, setShowModal] = useState(false);
 
   // Don't show anything if Supabase is not configured
   if (!isSupabaseConfigured()) {
@@ -98,10 +101,23 @@ export function SyncStatus() {
             </div>
           )}
           {pendingCount > 0 && (
-            <div className="flex justify-between items-center">
-              <span style={{ color: 'var(--text-tertiary)' }}>Pendientes:</span>
-              <span style={{ color: 'var(--warning)' }}>{pendingCount}</span>
-            </div>
+            <>
+              <div className="flex justify-between items-center">
+                <span style={{ color: 'var(--text-tertiary)' }}>Pendientes:</span>
+                <span style={{ color: 'var(--warning)' }}>{pendingCount}</span>
+              </div>
+              <button
+                onClick={() => setShowModal(true)}
+                className="w-full mt-2 py-1.5 px-2 rounded-md text-[10px] font-medium transition-colors flex items-center justify-center gap-1.5"
+                style={{
+                  background: 'var(--bg-tertiary)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <List className="h-3 w-3" />
+                Ver detalles
+              </button>
+            </>
           )}
           {hasError && (
             <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
@@ -111,6 +127,12 @@ export function SyncStatus() {
           )}
         </div>
       </div>
+
+      {/* Modal */}
+      <PendingOperationsModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+      />
     </div>
   );
 }
