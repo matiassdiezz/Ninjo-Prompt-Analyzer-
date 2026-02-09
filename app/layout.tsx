@@ -3,7 +3,7 @@ import "./globals.css";
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 
 export const metadata: Metadata = {
-  title: "Ninjo Prompt Analyzer",
+  title: "Nazaré",
   description: "Analyze and improve your Ninjo self-serve prompts with AI-powered insights",
   icons: {
     icon: "/images/favicon.ico",
