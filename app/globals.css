@@ -18,9 +18,9 @@
   --border-accent: rgba(0, 212, 170, 0.3);
 
   --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --text-tertiary: #6e7681;
-  --text-muted: #484f58;
+  --text-secondary: #9da5ae;
+  --text-tertiary: #838c95;
+  --text-muted: #5d6672;
 
   --accent-primary: #00d4aa;
   --accent-secondary: #00b896;
@@ -67,9 +67,9 @@
 
   /* Text */
   --text-primary: #1f2937;
-  --text-secondary: #6b7280;
-  --text-tertiary: #9ca3af;
-  --text-muted: #d1d5db;
+  --text-secondary: #586069;
+  --text-tertiary: #737b85;
+  --text-muted: #9ca3af;
 
   /* Accent - mantener el verde menta */
   --accent-primary: #00d4aa;
@@ -452,6 +452,14 @@ textarea {
 
 .animate-slideDown {
   animation: slideDown 0.3s ease-out;
+}
+
+@keyframes viewEnter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-viewEnter {
+  animation: viewEnter 0.2s ease-out;
 }
 
 .animate-pulse-slow {

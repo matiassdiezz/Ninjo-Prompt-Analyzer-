@@ -407,7 +407,21 @@ En la sección Conversation Logic:
 
 Esto genera:
 - Un link clickeable a "Conversation Logic"
-- Dos bloques de código con botones Aplicar/Guardar`;
+- Dos bloques de código con botones Aplicar/Guardar
+
+## 4. FORMATO PARSEABLE PARA TARJETAS DE CAMBIO
+
+La interfaz parsea automáticamente tus bloques de MODIFICACIONES SECCIÓN POR SECCIÓN y los renderiza como tarjetas interactivas con botones Aplicar/Rechazar.
+
+Para que funcione correctamente:
+1. Siempre usá el encabezado exacto: ## MODIFICACIONES SECCIÓN POR SECCIÓN
+2. Cada cambio debe empezar con ### N. donde N es el número de cambio
+3. Usá los campos exactos: **Sección:**, **Acción:**, **Antes:**, **Después:**, **Razón:**
+4. El texto de Antes y Después debe ir entre comillas dobles en una sola línea, o en un bloque de código con triple backtick si es multilínea
+5. Las acciones válidas son: Reemplazar, Insertar, Eliminar, Mover, Mantener
+6. Para inserciones, usá **Ubicación:** en lugar de **Antes:**
+7. Siempre incluí la **Razón:** al final de cada cambio
+8. El texto en **Antes:** debe ser una copia EXACTA del texto original del prompt para que el botón Aplicar pueda encontrarlo y reemplazarlo`;
 
 interface ChatMessage {
   role: 'user' | 'assistant';

@@ -1,3 +1,5 @@
+import type { FlowData } from '@/types/flow';
+
 // Chat message for QA conversations
 export interface ChatMessage {
   id: string;
@@ -33,7 +35,23 @@ export interface VersionChange {
   category?: string;
 }
 
-// Project to group prompts
+// Agent within a project (each agent has its own prompt, versions, chat, etc.)
+export interface Agent {
+  id: string;
+  projectId: string;
+  name: string;              // "Bot de WhatsApp", "Instagram DM"
+  channelType: string;       // flexible: "whatsapp", "instagram", "tiktok", "web", etc.
+  description?: string;
+  currentPrompt: string;
+  versions: PromptVersion[];
+  annotations: PromptAnnotation[];
+  chatMessages: ChatMessage[];
+  flowData?: FlowData;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// Project to group agents
 export interface Project {
   id: string;
   name: string;
@@ -42,13 +60,11 @@ export interface Project {
   status: 'en_proceso' | 'revision_cliente' | 'finalizado' | 'archivado';
   createdAt: number;
   updatedAt: number;
-  currentPrompt: string;
-  versions: PromptVersion[];
   tags: string[];
-  // Annotations are project-specific
-  annotations?: PromptAnnotation[];
-  // Chat messages are project-specific
-  chatMessages?: ChatMessage[];
+  // Multi-agent support
+  agents: Agent[];
+  currentAgentId: string | null;
+  sharedContext?: string;       // Info del negocio compartida entre agentes
 }
 
 // Knowledge category types

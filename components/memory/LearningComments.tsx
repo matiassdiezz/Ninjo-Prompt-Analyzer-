@@ -5,6 +5,7 @@ import { commentsRepository } from '@/lib/supabase/repositories';
 import { getSupabaseDeviceId } from '@/lib/supabase/device';
 import type { LearningComment } from '@/types/prompt';
 import { MessageSquare, Send, Trash2, Edit, X, Loader2 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -20,6 +21,7 @@ export function LearningComments({ learningId, onCommentAdded }: LearningComment
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const deviceId = getSupabaseDeviceId();
 
@@ -71,8 +73,6 @@ export function LearningComments({ learningId, onCommentAdded }: LearningComment
   };
 
   const handleDelete = async (commentId: string) => {
-    if (!confirm('¿Eliminar este comentario?')) return;
-
     const success = await commentsRepository.delete(commentId);
     if (success) {
       setComments(comments.filter(c => c.id !== commentId));
@@ -174,7 +174,7 @@ export function LearningComments({ learningId, onCommentAdded }: LearningComment
                             <Edit className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
                           </button>
                           <button
-                            onClick={() => handleDelete(comment.id)}
+                            onClick={() => setConfirmDeleteId(comment.id)}
                             className="p-1 rounded transition-colors hover:bg-[var(--error-subtle)]"
                           >
                             <Trash2 className="h-3 w-3" style={{ color: 'var(--error)' }} />
@@ -229,6 +229,19 @@ export function LearningComments({ learningId, onCommentAdded }: LearningComment
           Los comentarios son visibles para todo el equipo
         </p>
       </form>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeleteId}
+        onConfirm={() => {
+          if (confirmDeleteId) handleDelete(confirmDeleteId);
+          setConfirmDeleteId(null);
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+        title="Eliminar comentario"
+        message="¿Eliminar este comentario?"
+        confirmLabel="Eliminar"
+        variant="danger"
+      />
     </div>
   );
 }

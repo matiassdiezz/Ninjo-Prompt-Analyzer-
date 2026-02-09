@@ -96,7 +96,7 @@ export const projectsRepository = {
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.clientName !== undefined) dbUpdates.client_name = updates.clientName;
     if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.currentPrompt !== undefined) dbUpdates.current_prompt = updates.currentPrompt;
+    if (updates.sharedContext !== undefined) dbUpdates.shared_context = updates.sharedContext;
     if (updates.tags !== undefined) dbUpdates.tags = updates.tags;
 
     const { error } = await supabase

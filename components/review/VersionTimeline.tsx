@@ -15,17 +15,21 @@ import {
   X,
   Edit,
   Clock,
+  AlertTriangle,
 } from 'lucide-react';
+import { useToastStore } from '@/store/toastStore';
 import type { PromptVersion } from '@/types/prompt';
 
 export function VersionTimeline() {
-  const { getCurrentProject } = useKnowledgeStore();
+  const { getCurrentAgent, currentProjectId, saveVersionToProject } = useKnowledgeStore();
   const { setPrompt, currentPrompt } = useAnalysisStore();
+  const { addToast } = useToastStore();
   const [expandedVersionId, setExpandedVersionId] = useState<string | null>(null);
   const [previewVersionId, setPreviewVersionId] = useState<string | null>(null);
+  const [restoreConfirm, setRestoreConfirm] = useState<PromptVersion | null>(null);
 
-  const project = getCurrentProject();
-  const versions = project?.versions || [];
+  const agent = getCurrentAgent();
+  const versions = agent?.versions || [];
 
   if (versions.length === 0) {
     return (
@@ -53,8 +57,21 @@ export function VersionTimeline() {
   const sortedVersions = [...versions].sort((a, b) => b.timestamp - a.timestamp);
 
   const handleRestore = (version: PromptVersion) => {
-    setPrompt(version.content);
+    setRestoreConfirm(version);
+  };
+
+  const handleConfirmRestore = () => {
+    if (!restoreConfirm) return;
+
+    // Create backup version before restoring
+    if (currentProjectId && currentPrompt.trim()) {
+      saveVersionToProject(currentProjectId, currentPrompt, 'Backup antes de restaurar');
+    }
+
+    setPrompt(restoreConfirm.content);
     setPreviewVersionId(null);
+    setRestoreConfirm(null);
+    addToast('Version restaurada (backup creado)', 'success');
   };
 
   const handlePreview = (version: PromptVersion) => {
@@ -240,6 +257,47 @@ export function VersionTimeline() {
                           </button>
                         )}
                       </div>
+
+                      {/* Restore confirmation dialog */}
+                      {restoreConfirm?.id === version.id && (
+                        <div
+                          className="flex items-center gap-3 p-3 rounded-lg mt-2"
+                          style={{
+                            background: 'var(--warning-subtle)',
+                            border: '1px solid rgba(227, 179, 65, 0.3)',
+                          }}
+                        >
+                          <AlertTriangle className="h-4 w-4 shrink-0" style={{ color: 'var(--warning)' }} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                              Restaurar esta version? Se guardara una version de respaldo automatica.
+                            </p>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              onClick={() => setRestoreConfirm(null)}
+                              className="px-2.5 py-1 text-xs rounded-md transition-colors"
+                              style={{
+                                background: 'var(--bg-tertiary)',
+                                color: 'var(--text-secondary)',
+                                border: '1px solid var(--border-subtle)',
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={handleConfirmRestore}
+                              className="px-2.5 py-1 text-xs font-medium rounded-md transition-colors"
+                              style={{
+                                background: 'var(--accent-primary)',
+                                color: '#0a0e14',
+                              }}
+                            >
+                              Restaurar
+                            </button>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Preview */}
                       {isPreviewing && (

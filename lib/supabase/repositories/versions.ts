@@ -47,11 +47,9 @@ export const versionsRepository = {
       ...mapAppVersionToDbInsert(version, projectId),
     };
 
-    console.log('Creating version with data:', { dbVersion, projectId });
-
     const { data, error } = await supabase
       .from('prompt_versions')
-      .insert(dbVersion)
+      .upsert(dbVersion, { onConflict: 'id' })
       .select()
       .single();
 
@@ -60,9 +58,6 @@ export const versionsRepository = {
         error,
         code: error.code,
         message: error.message,
-        details: error.details,
-        hint: error.hint,
-        dbVersion,
       });
       return null;
     }

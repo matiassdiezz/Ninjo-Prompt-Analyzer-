@@ -13,6 +13,7 @@ import { ContextualSuggestions } from './ContextualSuggestions';
 import { ApplyLearningModal } from './ApplyLearningModal';
 import type { PromptAnnotation } from '@/types/prompt';
 import type { KnowledgeEntry } from '@/types/prompt';
+import { useToastStore } from '@/store/toastStore';
 import {
   FileText,
   Hash,
@@ -81,11 +82,16 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   
   const { getAntiPatterns, incrementUsage, getCurrentProject } = useKnowledgeStore();
   const currentProject = getCurrentProject();
+  const { addToast } = useToastStore();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const annotationOverlayRef = useRef<HTMLDivElement>(null);
+
+  // Undo snapshot tracking: group rapid keystrokes into one undo entry
+  const undoTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const hasPushedUndoRef = useRef(false);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveLabel, setSaveLabel] = useState('');
@@ -139,6 +145,23 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
 
   const headerActionButtonClassName =
     'h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs font-medium transition-all whitespace-nowrap';
+
+  // Push undo snapshot at the start of each typing burst (~1s gap = new burst)
+  const handlePromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (!hasPushedUndoRef.current) {
+      pushUndo();
+      hasPushedUndoRef.current = true;
+    }
+
+    setPrompt(e.target.value);
+
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+    }
+    undoTimerRef.current = setTimeout(() => {
+      hasPushedUndoRef.current = false;
+    }, 1000);
+  }, [pushUndo, setPrompt]);
 
   const handleScroll = useCallback(() => {
     if (textareaRef.current) {
@@ -589,8 +612,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
         setPrompt(text);
         textareaRef.current?.focus();
       }
-    } catch (err) {
-      console.error('Failed to read clipboard:', err);
+    } catch {
+      addToast('Error al pegar desde portapapeles', 'error');
     } finally {
       setTimeout(() => setIsPasting(false), 500);
     }
@@ -603,8 +626,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
       await navigator.clipboard.writeText(currentPrompt);
       setJustCopied(true);
       setTimeout(() => setJustCopied(false), 1500);
-    } catch (err) {
-      console.error('Failed to copy text:', err);
+    } catch {
+      addToast('Error al copiar al portapapeles', 'error');
     }
   };
 
@@ -1141,7 +1164,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
             <textarea
               ref={textareaRef}
               value={currentPrompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={handlePromptChange}
               onScroll={handleScroll}
               onSelect={handleTextSelection}
               onMouseUp={handleTextSelection}

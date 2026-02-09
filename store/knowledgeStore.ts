@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { KnowledgeEntry, SuggestionDecision, Project, PromptVersion } from '@/types/prompt';
+import type { KnowledgeEntry, SuggestionDecision, Project, PromptVersion, Agent } from '@/types/prompt';
+import { migrateProjectsToAgents } from '@/lib/migrations/migrateToAgents';
 import {
   type ExportData,
   type MergeOptions,
@@ -26,7 +27,7 @@ import { getSupabaseDeviceId } from '@/lib/supabase/device';
 
 // Types for pending operations
 type OperationType = 'create' | 'update' | 'delete';
-type EntityType = 'project' | 'version' | 'knowledge' | 'decision';
+type EntityType = 'project' | 'version' | 'knowledge' | 'decision' | 'agent';
 
 interface PendingOperation {
   id: string;
@@ -75,6 +76,13 @@ interface KnowledgeStore {
   setCurrentProject: (id: string | null) => void;
   getCurrentProject: () => Project | null;
   saveVersionToProject: (projectId: string, content: string, label: string, changes?: PromptVersion['changes']) => void;
+
+  // Actions - Agents
+  createAgent: (projectId: string, name: string, channelType: string, description?: string) => string;
+  updateAgent: (projectId: string, agentId: string, updates: Partial<Agent>) => void;
+  deleteAgent: (projectId: string, agentId: string) => void;
+  setCurrentAgent: (projectId: string, agentId: string | null) => void;
+  getCurrentAgent: () => Agent | null;
 
   // Actions - Search
   searchEntries: (query: string, tags?: string[]) => KnowledgeEntry[];
@@ -284,10 +292,10 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           status: 'en_proceso',
           createdAt: Date.now(),
           updatedAt: Date.now(),
-          currentPrompt: '',
-          versions: [],
           tags: [],
-          annotations: [],
+          agents: [],
+          currentAgentId: null,
+          sharedContext: '',
         };
 
         set((state) => ({
@@ -310,28 +318,8 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         const project = get().projects.find((p) => p.id === id);
         if (!project) return;
 
-        // Detectar versiones nuevas que necesitan sincronizarse
-        const newVersionOps: PendingOperation[] = [];
-        if (updates.versions && Array.isArray(updates.versions)) {
-          const existingVersionIds = new Set(project.versions.map(v => v.id));
-          const pendingVersionIds = new Set(
-            get().sync.pendingOperations
-              .filter(op => op.entity === 'version' && op.type === 'create')
-              .map(op => op.entityId)
-          );
-
-          for (const version of updates.versions) {
-            // Solo crear operación si es nueva Y no está ya pendiente
-            if (!existingVersionIds.has(version.id) && !pendingVersionIds.has(version.id)) {
-              newVersionOps.push(
-                createPendingOperation('create', 'version', version.id, { ...version, projectId: id })
-              );
-            }
-          }
-        }
-
-        // Excluir versions/annotations/chatMessages del update del proyecto (se manejan por separado)
-        const { versions: _versions, annotations: _annotations, chatMessages: _chatMessages, ...projectUpdates } = updates;
+        // Excluir agents del update del proyecto (se manejan via updateAgent)
+        const { agents: _agents, ...projectUpdates } = updates;
 
         set((state) => ({
           projects: state.projects.map((p) =>
@@ -341,8 +329,6 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             ...state.sync,
             pendingOperations: [
               ...state.sync.pendingOperations,
-              ...newVersionOps,
-              // Solo crear operación de update si hay campos del proyecto que actualizar
               ...(Object.keys(projectUpdates).length > 0
                 ? [createPendingOperation('update', 'project', id, projectUpdates)]
                 : []),
@@ -383,13 +369,16 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         const project = get().projects.find((p) => p.id === projectId);
         if (!project) return;
 
+        const agent = project.agents.find(a => a.id === project.currentAgentId);
+        if (!agent) return;
+
         const newVersion: PromptVersion = {
           id: crypto.randomUUID(),
           content,
           timestamp: Date.now(),
           label,
           changes,
-          parentVersionId: project.versions.length > 0 ? project.versions[project.versions.length - 1].id : undefined,
+          parentVersionId: agent.versions.length > 0 ? agent.versions[agent.versions.length - 1].id : undefined,
         };
 
         set((state) => ({
@@ -398,8 +387,15 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
 
             return {
               ...p,
-              currentPrompt: content,
-              versions: [...p.versions, newVersion],
+              agents: p.agents.map(a => {
+                if (a.id !== p.currentAgentId) return a;
+                return {
+                  ...a,
+                  currentPrompt: content,
+                  versions: [...a.versions, newVersion],
+                  updatedAt: Date.now(),
+                };
+              }),
               updatedAt: Date.now(),
             };
           }),
@@ -408,12 +404,94 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             pendingOperations: [
               ...state.sync.pendingOperations,
               createPendingOperation('create', 'version', newVersion.id, { ...newVersion, projectId }),
-              createPendingOperation('update', 'project', projectId, { currentPrompt: content }),
             ],
           },
         }));
 
         get().syncToSupabase();
+      },
+
+      // Agent CRUD
+      createAgent: (projectId, name, channelType, description) => {
+        const project = get().projects.find(p => p.id === projectId);
+        if (!project) return '';
+
+        const agent: Agent = {
+          id: crypto.randomUUID(),
+          projectId,
+          name,
+          channelType,
+          description,
+          currentPrompt: '',
+          versions: [],
+          annotations: [],
+          chatMessages: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: [...p.agents, agent],
+              currentAgentId: agent.id,
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+
+        return agent.id;
+      },
+
+      updateAgent: (projectId, agentId, updates) => {
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: p.agents.map(a => {
+                if (a.id !== agentId) return a;
+                return { ...a, ...updates, updatedAt: Date.now() };
+              }),
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+      },
+
+      deleteAgent: (projectId, agentId) => {
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            const filtered = p.agents.filter(a => a.id !== agentId);
+            return {
+              ...p,
+              agents: filtered,
+              currentAgentId: p.currentAgentId === agentId
+                ? (filtered.length > 0 ? filtered[0].id : null)
+                : p.currentAgentId,
+              updatedAt: Date.now(),
+            };
+          }),
+        }));
+      },
+
+      setCurrentAgent: (projectId, agentId) => {
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return { ...p, currentAgentId: agentId };
+          }),
+        }));
+      },
+
+      getCurrentAgent: () => {
+        const { projects, currentProjectId } = get();
+        const project = projects.find(p => p.id === currentProjectId);
+        if (!project) return null;
+        return project.agents.find(a => a.id === project.currentAgentId) || null;
       },
 
       // Search
@@ -590,10 +668,14 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         const newOperations: PendingOperation[] = [];
 
         if (data.data.projects) {
-          data.data.projects.forEach((p) => {
+          data.data.projects.forEach((p: any) => {
             newOperations.push(createPendingOperation('create', 'project', p.id, p));
-            p.versions?.forEach((v) => {
-              newOperations.push(createPendingOperation('create', 'version', v.id, { ...v, projectId: p.id }));
+            // Versions are now inside agents
+            const agents = p.agents || [];
+            agents.forEach((a: any) => {
+              a.versions?.forEach((v: any) => {
+                newOperations.push(createPendingOperation('create', 'version', v.id, { ...v, projectId: p.id }));
+              });
             });
           });
         }
@@ -938,6 +1020,14 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           isSyncing: false,
         },
       }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        // Migrate legacy projects (currentPrompt at project level) to agents[]
+        const needsMigration = state.projects.some((p: any) => !Array.isArray(p.agents));
+        if (needsMigration) {
+          state.projects = migrateProjectsToAgents(state.projects);
+        }
+      },
     }
   )
 );

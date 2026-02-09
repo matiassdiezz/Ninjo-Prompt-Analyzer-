@@ -88,7 +88,11 @@ interface AnalysisStore {
   clearChatMessages: () => void;
   getChatMessages: () => ChatMessage[];
 
-  // Actions - Project Sync (for loading project data)
+  // Actions - Agent Sync (for loading agent data)
+  loadAgentData: (data: { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages?: ChatMessage[] }) => void;
+  getAgentData: () => { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages: ChatMessage[] };
+  clearAgentData: () => void;
+  // Legacy aliases
   loadProjectData: (data: { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages?: ChatMessage[] }) => void;
   getProjectData: () => { prompt: string; versions: PromptVersion[]; annotations: PromptAnnotation[]; chatMessages: ChatMessage[] };
   clearProjectData: () => void;
@@ -416,8 +420,8 @@ export const useAnalysisStore = create<AnalysisStore>()(
         return get().chatMessages;
       },
 
-      // Project Sync actions
-      loadProjectData: (data) => {
+      // Agent Sync actions
+      loadAgentData: (data) => {
         set({
           currentPrompt: data.prompt,
           promptHistory: data.versions,
@@ -425,7 +429,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
           chatMessages: data.chatMessages || [],
           lastSavedContent: data.prompt,
           hasUnsavedChanges: false,
-          // Clear analysis-related state when switching projects
+          // Clear analysis-related state when switching agents
           analysis: null,
           suggestionStates: {},
           selectedSectionId: null,
@@ -434,7 +438,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
         });
       },
 
-      getProjectData: () => {
+      getAgentData: () => {
         const { currentPrompt, promptHistory, annotations, chatMessages } = get();
         return {
           prompt: currentPrompt,
@@ -444,7 +448,7 @@ export const useAnalysisStore = create<AnalysisStore>()(
         };
       },
 
-      clearProjectData: () => {
+      clearAgentData: () => {
         set({
           currentPrompt: '',
           promptHistory: [],
@@ -459,6 +463,11 @@ export const useAnalysisStore = create<AnalysisStore>()(
           redoStack: [],
         });
       },
+
+      // Legacy aliases
+      loadProjectData: (data) => { get().loadAgentData(data); },
+      getProjectData: () => get().getAgentData(),
+      clearProjectData: () => { get().clearAgentData(); },
 
       // Reset
       reset: () => {

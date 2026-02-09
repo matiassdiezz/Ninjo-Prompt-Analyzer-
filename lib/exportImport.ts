@@ -1,4 +1,5 @@
-import type { Project, KnowledgeEntry, SuggestionDecision } from '@/types/prompt';
+import type { Project, KnowledgeEntry, SuggestionDecision, Agent } from '@/types/prompt';
+import { migrateProjectsToAgents } from '@/lib/migrations/migrateToAgents';
 
 // Export format version for future compatibility
 const EXPORT_VERSION = '1.0';
@@ -163,25 +164,34 @@ export function mergeProjects(
   options: MergeOptions
 ): { merged: Project[]; added: number; updated: number; skipped: number } {
   const result = [...existing];
+  // Migrate imported projects if they're in legacy format
+  const migratedImported = migrateProjectsToAgents(imported);
   let added = 0;
   let updated = 0;
   let skipped = 0;
 
-  for (const importedProject of imported) {
+  for (const importedProject of migratedImported) {
     const existingIndex = result.findIndex(p => p.id === importedProject.id);
 
     if (existingIndex === -1) {
-      // New project, add it
       result.push(importedProject);
       added++;
     } else if (options.overwriteExisting) {
       if (options.mergeVersions) {
-        // Merge versions from both
-        const existingVersionIds = new Set(result[existingIndex].versions.map(v => v.id));
-        const newVersions = importedProject.versions.filter(v => !existingVersionIds.has(v.id));
+        // Merge agents: add new agents, merge versions within existing agents
+        const existingAgentIds = new Set(result[existingIndex].agents.map(a => a.id));
+        const mergedAgents: Agent[] = result[existingIndex].agents.map(existingAgent => {
+          const importedAgent = importedProject.agents.find(a => a.id === existingAgent.id);
+          if (!importedAgent) return existingAgent;
+          const existingVersionIds = new Set(existingAgent.versions.map(v => v.id));
+          const newVersions = importedAgent.versions.filter(v => !existingVersionIds.has(v.id));
+          return { ...existingAgent, versions: [...existingAgent.versions, ...newVersions] };
+        });
+        // Add new agents from import
+        const newAgents = importedProject.agents.filter(a => !existingAgentIds.has(a.id));
         result[existingIndex] = {
           ...importedProject,
-          versions: [...result[existingIndex].versions, ...newVersions],
+          agents: [...mergedAgents, ...newAgents],
           updatedAt: Date.now(),
         };
       } else {

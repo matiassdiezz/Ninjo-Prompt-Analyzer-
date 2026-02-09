@@ -6,6 +6,8 @@ import { useAnalysisStore } from '@/store/analysisStore';
 import type { Project } from '@/types/prompt';
 import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToastStore } from '@/store/toastStore';
 import {
   FolderOpen,
   Plus,
@@ -52,6 +54,9 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectClient, setNewProjectClient] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const { addToast } = useToastStore();
 
   // Filter and search projects
   const filteredProjects = useMemo(() => {
@@ -99,9 +104,7 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
 
   const handleDeleteProject = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    if (confirm('¿Eliminar este proyecto? Esta acción no se puede deshacer.')) {
-      deleteProject(projectId);
-    }
+    setConfirmDeleteId(projectId);
   };
 
   const handleEditProject = (e: React.MouseEvent, project: Project) => {
@@ -461,7 +464,7 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
                   <div className="flex items-center gap-3 pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                     <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                       <GitBranch className="h-3.5 w-3.5" />
-                      {project.versions.length} versiones
+                      {project.agents.length} agentes
                     </div>
                     <div className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                       <Clock className="h-3.5 w-3.5" />
@@ -516,7 +519,7 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
                         </span>
                       )}
                       <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {project.versions.length} versiones
+                        {project.agents.length} agentes
                       </span>
                       <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
                         Actualizado {formatDistanceToNow(project.updatedAt, { addSuffix: true, locale: es })}
@@ -545,6 +548,22 @@ export function ProjectsDashboard({ onClose, onSelectProject }: ProjectsDashboar
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeleteId}
+        onConfirm={() => {
+          if (confirmDeleteId) {
+            deleteProject(confirmDeleteId);
+            addToast('Proyecto eliminado', 'success');
+          }
+          setConfirmDeleteId(null);
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+        title="Eliminar proyecto"
+        message="¿Eliminar este proyecto? Esta accion no se puede deshacer."
+        confirmLabel="Eliminar"
+        variant="danger"
+      />
     </div>
   );
 }

@@ -94,17 +94,35 @@ export interface DbOnboardingProgress {
 
 // Mappers: DB -> App
 export function mapDbProjectToApp(dbProject: DbProject, versions: DbPromptVersion[]): Project {
+  const createdAt = new Date(dbProject.created_at).getTime();
+  const updatedAt = new Date(dbProject.updated_at).getTime();
+
+  // Create a default agent from DB data (DB still stores prompt at project level)
+  const defaultAgent: import('@/types/prompt').Agent = {
+    id: `agent-${dbProject.id}`,
+    projectId: dbProject.id,
+    name: 'Agente Principal',
+    channelType: 'instagram',
+    currentPrompt: dbProject.current_prompt,
+    versions: versions.map(mapDbVersionToApp),
+    annotations: [],
+    chatMessages: [],
+    createdAt,
+    updatedAt,
+  };
+
   return {
     id: dbProject.id,
     name: dbProject.name,
     description: dbProject.description,
     clientName: dbProject.client_name || undefined,
-    status: dbProject.status, // Direct mapping - same values in DB and app
-    createdAt: new Date(dbProject.created_at).getTime(),
-    updatedAt: new Date(dbProject.updated_at).getTime(),
-    currentPrompt: dbProject.current_prompt,
-    versions: versions.map(mapDbVersionToApp),
+    status: dbProject.status,
+    createdAt,
+    updatedAt,
     tags: dbProject.tags,
+    agents: [defaultAgent],
+    currentAgentId: defaultAgent.id,
+    sharedContext: '',
   };
 }
 
@@ -209,7 +227,7 @@ export function mapAppProjectToDbInsert(project: Project, deviceId: string): DbP
     description: project.description,
     client_name: project.clientName || null,
     status: project.status, // Direct mapping - same values in DB and app
-    current_prompt: project.currentPrompt,
+    current_prompt: project.agents?.[0]?.currentPrompt || '',
     tags: project.tags,
   };
 }

@@ -11,9 +11,9 @@ interface VersionHistoryModalProps {
 }
 
 export function VersionHistoryModal({ isOpen, onClose }: VersionHistoryModalProps) {
-  const { getCurrentProject } = useKnowledgeStore();
-  const project = getCurrentProject();
-  const versionsCount = project?.versions?.length || 0;
+  const { getCurrentAgent } = useKnowledgeStore();
+  const agent = getCurrentAgent();
+  const versionsCount = agent?.versions?.length || 0;
 
   const handleEscape = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {

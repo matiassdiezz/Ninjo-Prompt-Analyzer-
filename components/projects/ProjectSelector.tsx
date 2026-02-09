@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { useAnalysisStore } from '@/store/analysisStore';
 import type { Project } from '@/types/prompt';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { useToastStore } from '@/store/toastStore';
 import {
   FolderOpen,
   Plus,
@@ -30,7 +32,9 @@ export function ProjectSelector() {
   const [showStatusMenu, setShowStatusMenu] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectClient, setNewProjectClient] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  const { addToast } = useToastStore();
   const currentProject = projects.find((p) => p.id === currentProjectId);
 
   const handleCreateProject = () => {
@@ -43,6 +47,7 @@ export function ProjectSelector() {
     setNewProjectClient('');
     setShowNewForm(false);
     setIsOpen(false);
+    addToast('Proyecto creado', 'success');
   };
 
   const handleSelectProject = (project: Project) => {
@@ -58,9 +63,7 @@ export function ProjectSelector() {
 
   const handleDeleteProject = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
-    if (confirm('¿Eliminar este proyecto?')) {
-      deleteProject(projectId);
-    }
+    setConfirmDeleteId(projectId);
   };
 
   const handleStatusChange = (newStatus: Project['status']) => {
@@ -291,7 +294,7 @@ export function ProjectSelector() {
                             </p>
                           )}
                           <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                            {project.versions.length} versiones
+                            {project.agents.length} agentes
                           </p>
                         </div>
                         <button
@@ -311,6 +314,22 @@ export function ProjectSelector() {
         </>
       )}
     </div>
+
+      <ConfirmDialog
+        isOpen={!!confirmDeleteId}
+        onConfirm={() => {
+          if (confirmDeleteId) {
+            deleteProject(confirmDeleteId);
+            addToast('Proyecto eliminado', 'success');
+          }
+          setConfirmDeleteId(null);
+        }}
+        onCancel={() => setConfirmDeleteId(null)}
+        title="Eliminar proyecto"
+        message="¿Eliminar este proyecto? Esta accion no se puede deshacer."
+        confirmLabel="Eliminar"
+        variant="danger"
+      />
     </div>
   );
 }

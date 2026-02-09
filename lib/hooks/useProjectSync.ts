@@ -45,16 +45,19 @@ export function useProjectSync() {
   const saveToProject = useCallback((projectId: string) => {
     if (!projectId || isLoadingRef.current) return;
 
-    const data = getProjectData();
+    const project = projects.find(p => p.id === projectId);
+    if (!project?.currentAgentId) return;
 
-    // Only update if there's actual content
-    updateProject(projectId, {
+    const data = getProjectData();
+    const { updateAgent } = useKnowledgeStore.getState();
+
+    updateAgent(projectId, project.currentAgentId, {
       currentPrompt: data.prompt,
       versions: data.versions,
       annotations: data.annotations,
       chatMessages: data.chatMessages,
     });
-  }, [getProjectData, updateProject]);
+  }, [getProjectData, projects]);
 
   /**
    * Load project data into the editor
@@ -65,11 +68,13 @@ export function useProjectSync() {
 
     isLoadingRef.current = true;
 
+    // Load data from current agent within the project
+    const agent = project.agents?.find(a => a.id === project.currentAgentId);
     loadProjectData({
-      prompt: project.currentPrompt || '',
-      versions: project.versions || [],
-      annotations: project.annotations || [],
-      chatMessages: project.chatMessages || [],
+      prompt: agent?.currentPrompt || '',
+      versions: agent?.versions || [],
+      annotations: agent?.annotations || [],
+      chatMessages: agent?.chatMessages || [],
     });
 
     // Reset loading flag after state is settled

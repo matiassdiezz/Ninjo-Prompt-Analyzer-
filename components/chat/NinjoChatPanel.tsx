@@ -8,6 +8,9 @@ import { LearningCard } from './LearningCard';
 import { MarkdownMessage } from './MarkdownMessage';
 import { DuplicatePatternAlert, TestingSuggestionsAlert } from './DuplicatePatternAlert';
 import type { ExtractedLearning } from '@/lib/utils/learningExtractor';
+import type { ParsedChange } from '@/lib/utils/changeParser';
+import { findTextInPrompt } from '@/lib/utils/textMatcher';
+import { useToastStore } from '@/store/toastStore';
 import type { ChatMessage } from '@/types/prompt';
 
 // Extended chat message with learnings (for UI only, not persisted)
@@ -39,8 +42,9 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 export function NinjoChatPanel() {
-  const { currentPrompt, chatMessages, addChatMessage, setPrompt } = useAnalysisStore();
+  const { currentPrompt, chatMessages, addChatMessage, setPrompt, pushUndo } = useAnalysisStore();
   const { addEntry, currentProjectId, entries, decisions } = useKnowledgeStore();
+  const { addToast } = useToastStore();
   // Local state for learnings (not persisted to store)
   const [messageLearnings, setMessageLearnings] = useState<Map<string, ExtractedLearning[]>>(new Map());
   const [input, setInput] = useState('');
@@ -284,6 +288,177 @@ export function NinjoChatPanel() {
     window.dispatchEvent(new CustomEvent('navigate-to-section', { detail: { section } }));
   }, []);
 
+  // Handle apply structured change
+  const handleApplyChange = useCallback((change: ParsedChange) => {
+    try {
+      pushUndo();
+
+      if (change.action === 'replace' && change.beforeText && change.afterText) {
+        const match = findTextInPrompt(currentPrompt, change.beforeText);
+        if (match.found) {
+          const newPrompt =
+            currentPrompt.substring(0, match.startIndex) +
+            change.afterText +
+            currentPrompt.substring(match.endIndex);
+          setPrompt(newPrompt);
+          addToast('Cambio aplicado', 'success');
+        } else {
+          addToast('No se encontró el texto original en el prompt', 'error');
+        }
+      } else if (change.action === 'delete' && change.beforeText) {
+        const match = findTextInPrompt(currentPrompt, change.beforeText);
+        if (match.found) {
+          const newPrompt =
+            currentPrompt.substring(0, match.startIndex) +
+            currentPrompt.substring(match.endIndex);
+          setPrompt(newPrompt);
+          addToast('Texto eliminado', 'success');
+        } else {
+          addToast('No se encontró el texto a eliminar', 'error');
+        }
+      } else if (change.action === 'insert' && change.afterText) {
+        if (change.location) {
+          // Try to find the location text to insert after
+          const match = findTextInPrompt(currentPrompt, change.location);
+          if (match.found) {
+            const newPrompt =
+              currentPrompt.substring(0, match.endIndex) +
+              '\n' + change.afterText +
+              currentPrompt.substring(match.endIndex);
+            setPrompt(newPrompt);
+            addToast('Texto insertado', 'success');
+          } else {
+            addToast('No se encontró la ubicación para insertar', 'error');
+          }
+        } else {
+          // Append to end if no location specified
+          setPrompt(currentPrompt + '\n' + change.afterText);
+          addToast('Texto insertado al final', 'success');
+        }
+      } else if (change.action === 'move' && change.beforeText && change.location) {
+        const blockMatch = findTextInPrompt(currentPrompt, change.beforeText);
+        if (blockMatch.found) {
+          // Remove from original position
+          const withoutBlock =
+            currentPrompt.substring(0, blockMatch.startIndex) +
+            currentPrompt.substring(blockMatch.endIndex);
+          // Find new location in the modified prompt
+          const locationMatch = findTextInPrompt(withoutBlock, change.location);
+          if (locationMatch.found) {
+            const newPrompt =
+              withoutBlock.substring(0, locationMatch.endIndex) +
+              '\n' + change.beforeText +
+              withoutBlock.substring(locationMatch.endIndex);
+            setPrompt(newPrompt);
+            addToast('Bloque movido', 'success');
+          } else {
+            addToast('No se encontró la nueva ubicación', 'error');
+          }
+        } else {
+          addToast('No se encontró el bloque a mover', 'error');
+        }
+      }
+    } catch (error) {
+      console.error('Error applying change:', error);
+      addToast('Error al aplicar el cambio', 'error');
+    }
+  }, [currentPrompt, setPrompt, pushUndo, addToast]);
+
+  // Handle apply all structured changes at once
+  const handleApplyAllChanges = useCallback((changes: ParsedChange[]) => {
+    try {
+      pushUndo();
+      let updatedPrompt = currentPrompt;
+      let appliedCount = 0;
+      let failedCount = 0;
+
+      for (const change of changes) {
+        if (change.action === 'replace' && change.beforeText && change.afterText) {
+          const match = findTextInPrompt(updatedPrompt, change.beforeText);
+          if (match.found) {
+            updatedPrompt =
+              updatedPrompt.substring(0, match.startIndex) +
+              change.afterText +
+              updatedPrompt.substring(match.endIndex);
+            appliedCount++;
+          } else {
+            failedCount++;
+          }
+        } else if (change.action === 'delete' && change.beforeText) {
+          const match = findTextInPrompt(updatedPrompt, change.beforeText);
+          if (match.found) {
+            updatedPrompt =
+              updatedPrompt.substring(0, match.startIndex) +
+              updatedPrompt.substring(match.endIndex);
+            appliedCount++;
+          } else {
+            failedCount++;
+          }
+        } else if (change.action === 'insert' && change.afterText) {
+          if (change.location) {
+            const match = findTextInPrompt(updatedPrompt, change.location);
+            if (match.found) {
+              updatedPrompt =
+                updatedPrompt.substring(0, match.endIndex) +
+                '\n' + change.afterText +
+                updatedPrompt.substring(match.endIndex);
+              appliedCount++;
+            } else {
+              failedCount++;
+            }
+          } else {
+            updatedPrompt = updatedPrompt + '\n' + change.afterText;
+            appliedCount++;
+          }
+        } else if (change.action === 'move' && change.beforeText && change.location) {
+          const blockMatch = findTextInPrompt(updatedPrompt, change.beforeText);
+          if (blockMatch.found) {
+            const withoutBlock =
+              updatedPrompt.substring(0, blockMatch.startIndex) +
+              updatedPrompt.substring(blockMatch.endIndex);
+            const locationMatch = findTextInPrompt(withoutBlock, change.location);
+            if (locationMatch.found) {
+              updatedPrompt =
+                withoutBlock.substring(0, locationMatch.endIndex) +
+                '\n' + change.beforeText +
+                withoutBlock.substring(locationMatch.endIndex);
+              appliedCount++;
+            } else {
+              failedCount++;
+            }
+          } else {
+            failedCount++;
+          }
+        }
+      }
+
+      setPrompt(updatedPrompt);
+
+      if (failedCount === 0) {
+        addToast(`${appliedCount} cambios aplicados`, 'success');
+      } else {
+        addToast(`${appliedCount} de ${appliedCount + failedCount} cambios aplicados, ${failedCount} no encontrados`, 'warning');
+      }
+    } catch (error) {
+      console.error('Error applying all changes:', error);
+      addToast('Error al aplicar los cambios', 'error');
+    }
+  }, [currentPrompt, setPrompt, pushUndo, addToast]);
+
+  // Handle reject structured change (visual only, managed in MarkdownMessage)
+  const handleRejectChange = useCallback(() => {
+    // Status is managed internally by MarkdownMessage's changeStatuses state
+  }, []);
+
+  // Handle save change as learning
+  const handleSaveChangeLearning = useCallback((change: ParsedChange) => {
+    setCodeToSave(change.afterText || change.beforeText || '');
+    setMemoryTitle(change.title);
+    setMemoryDescription(change.reason);
+    setMemoryTags(`from-chat, ${change.section.toLowerCase()}`);
+    setShowSaveModal(true);
+  }, []);
+
   // Empty state when no prompt
   if (!currentPrompt.trim()) {
     return (
@@ -417,11 +592,15 @@ export function NinjoChatPanel() {
                           {message.content}
                         </div>
                       ) : (
-                        <MarkdownMessage 
+                        <MarkdownMessage
                           content={message.content}
                           onApplyCode={handleApplyCode}
                           onSaveToMemory={handleSaveToMemory}
                           onNavigateToSection={handleNavigateToSection}
+                          onApplyChange={handleApplyChange}
+                          onRejectChange={handleRejectChange}
+                          onSaveLearning={handleSaveChangeLearning}
+                          onApplyAllChanges={handleApplyAllChanges}
                         />
                       )}
                     </div>

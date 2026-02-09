@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { readJsonFile } from '@/lib/exportImport';
+import { useToastStore } from '@/store/toastStore';
 import {
   Download,
   Upload,
@@ -38,6 +39,7 @@ export function DataManager({ onClose }: DataManagerProps) {
     message: string;
     details?: { added: number; updated: number; skipped: number };
   } | null>(null);
+  const { addToast } = useToastStore();
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const [mergeVersions, setMergeVersions] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -59,6 +61,7 @@ export function DataManager({ onClose }: DataManagerProps) {
         exportFullBackup();
         break;
     }
+    addToast('Exportacion completada', 'success');
     onClose();
   };
 
@@ -77,9 +80,11 @@ export function DataManager({ onClose }: DataManagerProps) {
       });
       setImportResult(result);
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al importar';
+      addToast(errorMessage, 'error');
       setImportResult({
         success: false,
-        message: err instanceof Error ? err.message : 'Error al importar',
+        message: errorMessage,
       });
     } finally {
       setImporting(false);

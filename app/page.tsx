@@ -6,38 +6,66 @@ import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { EditorPanel } from '@/components/editor/EditorPanel';
 import { ContextCollapsible } from '@/components/editor/ContextCollapsible';
 import { NinjoChatPanel } from '@/components/chat/NinjoChatPanel';
-import { ProjectSelector } from '@/components/projects/ProjectSelector';
 import { ProjectsDashboard } from '@/components/projects/ProjectsDashboard';
 import { DataManager } from '@/components/projects/DataManager';
 import { VersionHistoryModal } from '@/components/versions/VersionHistoryModal';
 import { NinjoMemory } from '@/components/memory/NinjoMemory';
+import { FlowchartView } from '@/components/flowchart/FlowchartView';
+import { SimulatorPanel } from '@/components/simulation/SimulatorPanel';
+import { ProjectTreeSidebar } from '@/components/sidebar/ProjectTreeSidebar';
+import { AgentModal } from '@/components/agents/AgentModal';
 import { SyncStatus } from '@/components/ui/SyncStatus';
-import { ToastContainer, NewLearningToast } from '@/components/ui/Toast';
+import { ToastContainer, NewLearningToast, GlobalToastContainer } from '@/components/ui/Toast';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
+import { ResizablePanels } from '@/components/ui/ResizablePanels';
+import { KeyboardShortcutsModal } from '@/components/ui/KeyboardShortcutsModal';
 import { useSupabaseInit } from '@/lib/supabase/hooks/useSupabaseInit';
-import { useProjectSync } from '@/lib/hooks/useProjectSync';
-import type { KnowledgeEntry } from '@/types/prompt';
+import { useAgentSync } from '@/lib/hooks/useAgentSync';
+import type { KnowledgeEntry, Agent } from '@/types/prompt';
 import {
   AlertCircle,
   GitBranch,
-  LayoutGrid,
-  Brain,
   Settings,
+  Workflow,
+  PlayCircle,
+  FileText,
+  Instagram,
+  MessageCircle,
+  Music,
+  Globe,
+  Sparkles,
 } from 'lucide-react';
-import Image from 'next/image';
+
+type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart' | 'simulator';
+
+const CHANNEL_ICONS: Record<string, React.ElementType> = {
+  instagram: Instagram,
+  whatsapp: MessageCircle,
+  tiktok: Music,
+  web: Globe,
+};
 
 export default function Home() {
   const { error } = useAnalysisStore();
 
-  const { getCurrentProject } = useKnowledgeStore();
+  const {
+    getCurrentProject,
+    getCurrentAgent,
+    currentProjectId,
+    createProject,
+    setCurrentProject,
+    setCurrentAgent,
+  } = useKnowledgeStore();
+
   const project = getCurrentProject();
-  const versionsCount = project?.versions?.length || 0;
+  const agent = getCurrentAgent();
+  const versionsCount = agent?.versions?.length || 0;
 
   // Initialize Supabase sync
   useSupabaseInit();
 
-  // Sync editor prompt with current project
-  useProjectSync();
+  // Sync editor prompt with current agent
+  useAgentSync();
 
   // Track mounted state to prevent hydration mismatch
   const [mounted, setMounted] = useState(false);
@@ -50,8 +78,7 @@ export default function Home() {
     const handleNewLearning = (event: CustomEvent<KnowledgeEntry>) => {
       const newLearning = event.detail;
       setNewLearningToasts(prev => [...prev, newLearning]);
-      
-      // Auto-remove after 8 seconds
+
       setTimeout(() => {
         setNewLearningToasts(prev => prev.filter(l => l.id !== newLearning.id));
       }, 8000);
@@ -61,113 +88,177 @@ export default function Home() {
     return () => window.removeEventListener('new-learning', handleNewLearning as EventListener);
   }, []);
 
-  // Active view: 'workspace' | 'memory' | 'projects' | 'history'
-  type ActiveView = 'workspace' | 'memory' | 'projects' | 'history';
   const [activeView, setActiveView] = useState<ActiveView>('workspace');
   const [showDataManager, setShowDataManager] = useState(false);
-  
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Agent modal state
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentModalProjectId, setAgentModalProjectId] = useState('');
+  const [agentModalEdit, setAgentModalEdit] = useState<Agent | null>(null);
+
   // Toast notifications for new learnings
   const [newLearningToasts, setNewLearningToasts] = useState<KnowledgeEntry[]>([]);
 
-  // Get memory entries count for badge
-  const { entries } = useKnowledgeStore();
-  const memoryCount = entries.filter((e) => e.tags.includes('from-chat')).length;
+  // Keyboard shortcut: "?" to open shortcuts modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      if (e.key === '?' && !isInput) {
+        e.preventDefault();
+        setShowShortcutsModal(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const handleCreateProject = () => {
+    const id = createProject('Nuevo Proyecto', '');
+    setCurrentProject(id);
+    setActiveView('workspace');
+  };
+
+  const handleCreateAgent = (projectId: string) => {
+    setAgentModalProjectId(projectId);
+    setAgentModalEdit(null);
+    setAgentModalOpen(true);
+  };
+
+  const handleEditAgent = (projectId: string, agentToEdit: Agent) => {
+    setAgentModalProjectId(projectId);
+    setAgentModalEdit(agentToEdit);
+    setAgentModalOpen(true);
+  };
+
+  // Agent tabs (only show when an agent is selected)
+  const agentTabs: { id: ActiveView; label: string; icon: React.ElementType }[] = [
+    { id: 'workspace', label: 'Prompt', icon: FileText },
+    { id: 'flowchart', label: 'Flujo', icon: Workflow },
+    { id: 'simulator', label: 'Simulador', icon: PlayCircle },
+    { id: 'history', label: 'Historial', icon: GitBranch },
+  ];
+
+  const ChannelIcon = agent ? (CHANNEL_ICONS[agent.channelType.toLowerCase()] || Sparkles) : null;
 
   return (
-    <div className="h-screen flex flex-col noise-overlay" style={{ background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <header className="flex-shrink-0 glass border-b" style={{ borderColor: 'var(--border-subtle)' }}>
-        <div className="max-w-[1800px] mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-1">
-            <div className="h-12 w-12 relative flex-shrink-0">
-             <Image src="/images/LogoNazare.png" alt="Ninjo Logo" width={48} height={48} />
-            </div>
-            <div className="hidden sm:flex flex-col">
-              <h1 className="text-lg font-semibold leading-tight" style={{ color: 'var(--text-primary)' }}>
-                Ninjo - Nazáre
-              </h1>
-              
-            </div>
+    <div className="h-screen flex noise-overlay" style={{ background: 'var(--bg-primary)' }}>
+      {/* Sidebar */}
+      <ProjectTreeSidebar
+        activeView={activeView}
+        onChangeView={setActiveView}
+        onCreateProject={handleCreateProject}
+        onCreateAgent={handleCreateAgent}
+        onEditAgent={handleEditAgent}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
+
+      {/* Main Area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Slim Header */}
+        <header
+          className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b"
+          style={{
+            background: 'var(--bg-secondary)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          {/* Agent Bar */}
+          <div className="flex items-center gap-3">
+            {mounted && agent && ChannelIcon && (
+              <>
+                <div className="flex items-center gap-2">
+                  <ChannelIcon className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
+                  <button
+                    onClick={() => setActiveView('projects')}
+                    className="text-sm transition-colors hover:underline"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {project?.name || 'Proyecto'}
+                  </button>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>/</span>
+                  <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                    {agent.name}
+                  </span>
+                  <span
+                    className="text-[10px] px-2 py-0.5 rounded-full"
+                    style={{
+                      background: 'var(--bg-tertiary)',
+                      color: 'var(--text-muted)',
+                    }}
+                  >
+                    {agent.channelType}
+                  </span>
+                </div>
+
+                {/* Agent View Tabs */}
+                <div
+                  className="flex items-center gap-0.5 p-0.5 rounded-lg ml-2"
+                  style={{ background: 'var(--bg-tertiary)' }}
+                >
+                  {agentTabs.map(tab => {
+                    const TabIcon = tab.icon;
+                    const isActive = activeView === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveView(tab.id)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-all text-xs"
+                        style={{
+                          background: isActive ? 'var(--accent-glow)' : 'transparent',
+                          color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                        }}
+                      >
+                        <TabIcon className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">{tab.label}</span>
+                        {tab.id === 'history' && mounted && versionsCount > 0 && (
+                          <span
+                            className="text-[9px] px-1 py-0 rounded-full font-medium"
+                            style={{
+                              background: isActive ? 'var(--accent-primary)' : 'var(--bg-elevated)',
+                              color: isActive ? 'var(--bg-primary)' : 'var(--text-muted)',
+                            }}
+                          >
+                            {versionsCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+
+            {mounted && !agent && currentProjectId && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setActiveView('projects')}
+                  className="text-sm transition-colors hover:underline"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {project?.name || 'Proyecto'}
+                </button>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>/</span>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  Selecciona un agente
+                </span>
+              </div>
+            )}
+
+            {mounted && !currentProjectId && (
+              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                Selecciona un proyecto en el sidebar
+              </span>
+            )}
           </div>
 
-          {/* Project Selector & Sync Status */}
-          <div className="flex items-center gap-3">
+          {/* Right actions */}
+          <div className="flex items-center gap-2">
             <SyncStatus />
-
-            {/* Theme Toggle */}
             <ThemeToggle />
-
-            {/* Tab Buttons */}
-            <div
-              className="flex items-center gap-1 p-1 rounded-lg"
-              style={{ background: 'var(--bg-tertiary)' }}
-            >
-              {/* Memory Tab */}
-              <button
-                onClick={() => setActiveView(activeView === 'memory' ? 'workspace' : 'memory')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-200"
-                style={{
-                  background: activeView === 'memory' ? 'var(--accent-glow)' : 'transparent',
-                  color: activeView === 'memory' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                }}
-                title="Ver memoria de aprendizajes"
-              >
-                <Brain className="h-4 w-4" />
-                <span className="text-sm hidden sm:inline">Memoria</span>
-                {mounted && memoryCount > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{
-                      background: activeView === 'memory' ? 'var(--accent-primary)' : 'var(--bg-elevated)',
-                      color: activeView === 'memory' ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {memoryCount}
-                  </span>
-                )}
-              </button>
-
-              {/* History Tab */}
-              <button
-                onClick={() => setActiveView(activeView === 'history' ? 'workspace' : 'history')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-200"
-                style={{
-                  background: activeView === 'history' ? 'var(--accent-glow)' : 'transparent',
-                  color: activeView === 'history' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                }}
-                title="Ver historial de versiones"
-              >
-                <GitBranch className="h-4 w-4" />
-                <span className="text-sm hidden sm:inline">Historial</span>
-                {mounted && versionsCount > 0 && (
-                  <span
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{
-                      background: activeView === 'history' ? 'var(--accent-primary)' : 'var(--bg-elevated)',
-                      color: activeView === 'history' ? 'var(--bg-primary)' : 'var(--text-secondary)',
-                    }}
-                  >
-                    {versionsCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Projects Tab */}
-              <button
-                onClick={() => setActiveView(activeView === 'projects' ? 'workspace' : 'projects')}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-md transition-all duration-200"
-                style={{
-                  background: activeView === 'projects' ? 'var(--accent-glow)' : 'transparent',
-                  color: activeView === 'projects' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                }}
-                title="Ver todos los proyectos"
-              >
-                <LayoutGrid className="h-4 w-4" />
-                <span className="text-sm hidden sm:inline">Proyectos</span>
-              </button>
-            </div>
-
-            <ProjectSelector />
 
             {/* Settings / Data Manager */}
             <div className="relative">
@@ -178,12 +269,11 @@ export default function Home() {
                   background: showDataManager ? 'var(--accent-glow)' : 'var(--bg-tertiary)',
                   color: showDataManager ? 'var(--accent-primary)' : 'var(--text-secondary)',
                 }}
-                title="Gestión de datos"
+                title="Gestion de datos"
               >
                 <Settings className="h-4 w-4" />
               </button>
 
-              {/* Data Manager Dropdown */}
               {showDataManager && (
                 <>
                   <div
@@ -204,82 +294,86 @@ export default function Home() {
               )}
             </div>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Main Content */}
-      <main className="flex-1 min-h-0">
-        {activeView === 'memory' && (
-          <NinjoMemory onClose={() => setActiveView('workspace')} />
-        )}
-        {activeView === 'projects' && (
-          <ProjectsDashboard
-            onClose={() => setActiveView('workspace')}
-            onSelectProject={() => setActiveView('workspace')}
-          />
-        )}
-        {activeView === 'history' && (
-          <VersionHistoryModal
-            isOpen={true}
-            onClose={() => setActiveView('workspace')}
-          />
-        )}
-        {(activeView === 'workspace' || activeView === 'history') && (
-        <div className="h-full p-4">
-        <div className="h-full max-w-[1800px] mx-auto">
-          {/* Workspace Layout - 55% Editor / 45% Chat */}
-          <div className="h-full flex gap-4">
-            {/* Left Column - Editor (55%) */}
-            <div className="flex-[55] flex flex-col gap-4 min-w-0">
-              {/* Editor */}
-              <div className="flex-1 card overflow-hidden min-h-0 glow-border animate-fadeIn">
-                <EditorPanel />
-              </div>
-
-              {/* Context (Collapsible) */}
-              <div className="flex-shrink-0 animate-slideUp" style={{ animationDelay: '0.1s' }}>
-                <ContextCollapsible />
-              </div>
-
-              {/* Error */}
-              {error && (
-                <div
-                  className="flex-shrink-0 rounded-xl p-4 flex items-start gap-3 animate-slideUp"
-                  style={{
-                    background: 'var(--error-subtle)',
-                    border: '1px solid rgba(248, 81, 73, 0.2)'
-                  }}
-                >
-                  <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
-                  <div>
-                    <p className="font-semibold text-sm" style={{ color: 'var(--error)' }}>Error</p>
-                    <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+        {/* Main Content */}
+        <main className="flex-1 min-h-0">
+          {activeView === 'memory' && (
+            <div className="h-full animate-viewEnter">
+              <NinjoMemory onClose={() => setActiveView('workspace')} />
+            </div>
+          )}
+          {activeView === 'projects' && (
+            <div className="h-full animate-viewEnter">
+              <ProjectsDashboard
+                onClose={() => setActiveView('workspace')}
+                onSelectProject={() => setActiveView('workspace')}
+              />
+            </div>
+          )}
+          {activeView === 'history' && (
+            <div className="h-full animate-viewEnter">
+              <VersionHistoryModal
+                isOpen={true}
+                onClose={() => setActiveView('workspace')}
+              />
+            </div>
+          )}
+          {activeView === 'flowchart' && (
+            <div className="h-full animate-viewEnter">
+              <FlowchartView onClose={() => setActiveView('workspace')} />
+            </div>
+          )}
+          {activeView === 'simulator' && (
+            <div className="h-full animate-viewEnter">
+              <SimulatorPanel onClose={() => setActiveView('workspace')} />
+            </div>
+          )}
+          {(activeView === 'workspace' || activeView === 'history') && (
+            <div className="h-full p-4">
+              <ResizablePanels
+                defaultRatio={0.55}
+                minRatio={0.3}
+                maxRatio={0.8}
+                storageKey="ninjo-editor-chat-ratio"
+              >
+                <div className="flex flex-col gap-4 min-w-0 h-full">
+                  {/* Editor */}
+                  <div className="flex-1 card overflow-hidden min-h-0 glow-border animate-fadeIn">
+                    <EditorPanel />
                   </div>
+
+                  {/* Context (Collapsible) */}
+                  <div className="flex-shrink-0 animate-slideUp" style={{ animationDelay: '0.1s' }}>
+                    <ContextCollapsible />
+                  </div>
+
+                  {/* Error */}
+                  {error && (
+                    <div
+                      className="flex-shrink-0 rounded-xl p-4 flex items-start gap-3 animate-slideUp"
+                      style={{
+                        background: 'var(--error-subtle)',
+                        border: '1px solid rgba(248, 81, 73, 0.2)',
+                      }}
+                    >
+                      <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
+                      <div>
+                        <p className="font-semibold text-sm" style={{ color: 'var(--error)' }}>Error</p>
+                        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {/* Right Column - Ninjo Chat (45%) */}
-            <div className="flex-[45] flex-shrink-0 card overflow-hidden animate-slideUp" style={{ animationDelay: '0.05s' }}>
-              <NinjoChatPanel />
+                <div className="card overflow-hidden h-full animate-slideUp" style={{ animationDelay: '0.05s' }}>
+                  <NinjoChatPanel />
+                </div>
+              </ResizablePanels>
             </div>
-          </div>
-        </div>
-        </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer
-        className="flex-shrink-0 border-t"
-        style={{ background: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)' }}
-      >
-        <div className="max-w-[1800px] mx-auto px-6 py-2.5">
-          <p className="text-xs text-center" style={{ color: 'var(--text-muted)' }}>
-            Powered by <span style={{ color: 'var(--accent-primary)' }}>Claude Sonnet 4.5</span>
-          </p>
-        </div>
-      </footer>
+          )}
+        </main>
+      </div>
 
       {/* Toast Notifications */}
       <ToastContainer>
@@ -291,6 +385,23 @@ export default function Home() {
           />
         ))}
       </ToastContainer>
+
+      {/* Global Toast System */}
+      <GlobalToastContainer />
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
+
+      {/* Agent Modal */}
+      <AgentModal
+        isOpen={agentModalOpen}
+        onClose={() => setAgentModalOpen(false)}
+        projectId={agentModalProjectId}
+        editAgent={agentModalEdit}
+      />
     </div>
   );
 }
