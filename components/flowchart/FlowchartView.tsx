@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
-import { X, GitBranch, FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2 } from 'lucide-react';
 import { useToastStore } from '@/store/toastStore';
 
 import { FlowchartCanvas } from './FlowchartCanvas';
@@ -25,7 +25,7 @@ interface FlowchartViewProps {
   onClose: () => void;
 }
 
-function FlowchartViewContent({ onClose }: FlowchartViewProps) {
+function FlowchartViewContent(_props: FlowchartViewProps) {
   const {
     nodes,
     edges,
@@ -39,7 +39,7 @@ function FlowchartViewContent({ onClose }: FlowchartViewProps) {
     selectEdge,
     setFlowData,
     clearFlow,
-    hasUnsavedChanges,
+
     detectedAsciiFlow,
     detectedTextFlows,
     isExtractingFlow,
@@ -241,74 +241,6 @@ function FlowchartViewContent({ onClose }: FlowchartViewProps) {
 
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-3 border-b"
-        style={{
-          background: 'var(--bg-secondary)',
-          borderColor: 'var(--border-subtle)',
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <div
-            className="p-2 rounded-lg"
-            style={{ background: 'var(--accent-glow)' }}
-          >
-            <GitBranch className="h-5 w-5" style={{ color: 'var(--accent-primary)' }} />
-          </div>
-          <div>
-            <h2
-              className="text-base font-semibold"
-              style={{ color: 'var(--text-primary)' }}
-            >
-              Editor de Flujo Conversacional
-            </h2>
-            <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-              Visualiza y edita el flujo de conversacion del agente
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Unsaved indicator */}
-          {hasUnsavedChanges && (
-            <span
-              className="text-xs px-2 py-1 rounded-full"
-              style={{
-                background: 'var(--warning-subtle)',
-                color: 'var(--warning)',
-              }}
-            >
-              Sin guardar
-            </span>
-          )}
-
-          {/* Node count */}
-          <span
-            className="text-xs px-2 py-1 rounded-full"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-secondary)',
-            }}
-          >
-            {nodes.length} nodos
-          </span>
-
-          {/* Close button */}
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg transition-colors hover:bg-opacity-80"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-secondary)',
-            }}
-            title="Cerrar"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-      </div>
-
       {/* ASCII Detection Banner */}
       {detectedAsciiFlow && (
         <div

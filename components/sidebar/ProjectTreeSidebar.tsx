@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 
-type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart' | 'simulator';
+type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart';
 
 interface ProjectTreeSidebarProps {
   activeView: ActiveView;

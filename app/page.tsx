@@ -11,7 +11,7 @@ import { DataManager } from '@/components/projects/DataManager';
 import { VersionHistoryModal } from '@/components/versions/VersionHistoryModal';
 import { NinjoMemory } from '@/components/memory/NinjoMemory';
 import { FlowchartView } from '@/components/flowchart/FlowchartView';
-import { SimulatorPanel } from '@/components/simulation/SimulatorPanel';
+
 import { ProjectTreeSidebar } from '@/components/sidebar/ProjectTreeSidebar';
 import { AgentModal } from '@/components/agents/AgentModal';
 import { SyncStatus } from '@/components/ui/SyncStatus';
@@ -27,7 +27,7 @@ import {
   GitBranch,
   Settings,
   Workflow,
-  PlayCircle,
+
   FileText,
   Instagram,
   MessageCircle,
@@ -36,7 +36,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 
-type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart' | 'simulator';
+type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart';
 
 const CHANNEL_ICONS: Record<string, React.ElementType> = {
   instagram: Instagram,
@@ -137,7 +137,7 @@ export default function Home() {
   const agentTabs: { id: ActiveView; label: string; icon: React.ElementType }[] = [
     { id: 'workspace', label: 'Prompt', icon: FileText },
     { id: 'flowchart', label: 'Flujo', icon: Workflow },
-    { id: 'simulator', label: 'Simulador', icon: PlayCircle },
+
     { id: 'history', label: 'Historial', icon: GitBranch },
   ];
 
@@ -324,11 +324,7 @@ export default function Home() {
               <FlowchartView onClose={() => setActiveView('workspace')} />
             </div>
           )}
-          {activeView === 'simulator' && (
-            <div className="h-full animate-viewEnter">
-              <SimulatorPanel onClose={() => setActiveView('workspace')} />
-            </div>
-          )}
+
           {(activeView === 'workspace' || activeView === 'history') && (
             <div className="h-full p-4">
               <ResizablePanels

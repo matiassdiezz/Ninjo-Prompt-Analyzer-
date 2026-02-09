@@ -102,7 +102,7 @@ export function NodePropertiesPanel({
     });
   };
 
-  const canEditLabel = node.type !== 'start' && node.type !== 'end';
+  const canEditLabel = node.type !== 'start';
   const canHaveDescription = node.type === 'action' || node.type === 'decision';
   const canHaveExtras = node.type === 'action' || node.type === 'decision';
 

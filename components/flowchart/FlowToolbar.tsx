@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Play,
   Square,
@@ -18,6 +18,9 @@ import {
   Undo2,
   Redo2,
   LayoutGrid,
+  ChevronDown,
+  Pencil,
+  Download,
 } from 'lucide-react';
 import type { FlowNodeType } from '@/types/flow';
 
@@ -36,14 +39,11 @@ interface FlowToolbarProps {
   onInsertInPrompt: () => void;
   onOpenTemplates: () => void;
   onGeneratePromptSections: () => void;
-  // Undo/Redo
   onUndo: () => void;
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
-  // Clear
   onClearFlow: () => void;
-  // Auto-layout
   onAutoLayout: () => void;
 }
 
@@ -54,6 +54,129 @@ const nodeButtons: { type: FlowNodeType; icon: typeof Play; label: string; color
   { type: 'end', icon: Square, label: 'Fin', color: 'var(--error)' },
 ];
 
+// Reusable dropdown component
+function ToolbarDropdown({
+  label,
+  icon: Icon,
+  children,
+  badge,
+  badgeColor,
+}: {
+  label: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+  badge?: number;
+  badgeColor?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    if (open) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all"
+        style={{
+          background: open ? 'var(--accent-glow)' : 'var(--bg-tertiary)',
+          border: `1px solid ${open ? 'var(--accent-primary)' : 'var(--border-subtle)'}`,
+          color: open ? 'var(--accent-primary)' : 'var(--text-secondary)',
+        }}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        <span className="text-xs font-medium">{label}</span>
+        <ChevronDown className="h-3 w-3" style={{ opacity: 0.6 }} />
+        {badge !== undefined && badge > 0 && (
+          <span
+            className="absolute -top-1.5 -right-1.5 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full"
+            style={{
+              background: badgeColor || 'var(--warning)',
+              color: 'var(--bg-primary)',
+            }}
+          >
+            {badge > 9 ? '9+' : badge}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-1 min-w-[200px] rounded-lg overflow-hidden z-50 animate-slideDown"
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <div className="py-1" onClick={() => setOpen(false)}>
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Dropdown menu item
+function DropdownItem({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  color,
+  shortcut,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  color?: string;
+  shortcut?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+      style={{
+        color: disabled ? 'var(--text-muted)' : (color || 'var(--text-secondary)'),
+      }}
+      onMouseEnter={(e) => {
+        if (!disabled) (e.currentTarget.style.background = 'var(--bg-tertiary)');
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = 'transparent';
+      }}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="flex-1 text-left font-medium">{label}</span>
+      {shortcut && (
+        <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{shortcut}</span>
+      )}
+    </button>
+  );
+}
+
+function DropdownDivider() {
+  return (
+    <div
+      className="my-1 mx-2"
+      style={{ borderTop: '1px solid var(--border-subtle)' }}
+    />
+  );
+}
+
 export function FlowToolbar({
   onAddNode,
   onDeleteSelected,
@@ -61,7 +184,6 @@ export function FlowToolbar({
   onCreateInitialFlow,
   hasNodes,
   hasSelectedNode,
-  selectedNodeType,
   validationWarningCount,
   onToggleValidation,
   onGenerateFromNL,
@@ -80,7 +202,7 @@ export function FlowToolbar({
 
   return (
     <div
-      className="flex items-center gap-3 p-3 border-b flex-wrap"
+      className="flex items-center gap-2 px-3 py-2 border-b"
       style={{
         background: 'var(--bg-secondary)',
         borderColor: 'var(--border-subtle)',
@@ -88,17 +210,11 @@ export function FlowToolbar({
     >
       {/* Add Nodes */}
       <div className="flex items-center gap-1">
-        <span
-          className="text-xs font-medium mr-2"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          Agregar:
-        </span>
         {nodeButtons.map(({ type, icon: Icon, label, color }) => (
           <button
             key={type}
             onClick={() => onAddNode(type)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all hover:scale-105"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-lg transition-all hover:scale-105"
             style={{
               background: `${color}15`,
               border: `1px solid ${color}40`,
@@ -107,26 +223,22 @@ export function FlowToolbar({
             title={`Agregar nodo ${label}`}
           >
             <Icon className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">{label}</span>
+            <span className="text-xs font-medium hidden sm:inline">{label}</span>
           </button>
         ))}
       </div>
 
       {/* Divider */}
-      <div
-        className="h-6 w-px"
-        style={{ background: 'var(--border-default)' }}
-      />
+      <div className="h-5 w-px" style={{ background: 'var(--border-default)' }} />
 
       {/* Undo/Redo */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-0.5">
         <button
           onClick={onUndo}
           disabled={!canUndo}
-          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           style={{
             background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-subtle)',
             color: 'var(--text-secondary)',
           }}
           title="Deshacer (Cmd+Z)"
@@ -136,10 +248,9 @@ export function FlowToolbar({
         <button
           onClick={onRedo}
           disabled={!canRedo}
-          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+          className="p-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
           style={{
             background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-subtle)',
             color: 'var(--text-secondary)',
           }}
           title="Rehacer (Cmd+Shift+Z)"
@@ -149,56 +260,47 @@ export function FlowToolbar({
       </div>
 
       {/* Divider */}
-      <div
-        className="h-6 w-px"
-        style={{ background: 'var(--border-default)' }}
-      />
+      <div className="h-5 w-px" style={{ background: 'var(--border-default)' }} />
 
-      {/* Actions */}
-      <div className="flex items-center gap-1">
-        {/* Delete selected */}
-        <button
+      {/* Edit dropdown */}
+      <ToolbarDropdown label="Editar" icon={Pencil}>
+        <DropdownItem
+          icon={Trash2}
+          label="Eliminar seleccionado"
           onClick={onDeleteSelected}
           disabled={!hasSelectedNode}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            background: hasSelectedNode ? 'var(--error-subtle)' : 'transparent',
-            border: `1px solid ${hasSelectedNode ? 'rgba(248, 81, 73, 0.3)' : 'var(--border-subtle)'}`,
-            color: hasSelectedNode ? 'var(--error)' : 'var(--text-muted)',
-          }}
-          title="Eliminar nodo seleccionado"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Eliminar</span>
-        </button>
-
-        {/* Clear flow */}
-        {hasNodes && !showClearConfirm && (
-          <button
-            onClick={() => setShowClearConfirm(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all"
-            style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-secondary)',
+          color="var(--error)"
+          shortcut="Del"
+        />
+        <DropdownItem
+          icon={LayoutGrid}
+          label="Ordenar automaticamente"
+          onClick={onAutoLayout}
+          disabled={!hasNodes}
+        />
+        <DropdownItem
+          icon={Maximize2}
+          label="Ajustar vista"
+          onClick={onFitView}
+          disabled={!hasNodes}
+        />
+        <DropdownDivider />
+        {!showClearConfirm ? (
+          <DropdownItem
+            icon={Trash2}
+            label="Limpiar todo el flujo"
+            onClick={() => {
+              setShowClearConfirm(true);
             }}
-            title="Limpiar todo el flujo"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Limpiar</span>
-          </button>
-        )}
-
-        {/* Clear confirmation inline */}
-        {showClearConfirm && (
+            disabled={!hasNodes}
+            color="var(--error)"
+          />
+        ) : (
           <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
-            style={{
-              background: 'var(--error-subtle)',
-              border: '1px solid rgba(248, 81, 73, 0.3)',
-            }}
+            className="flex items-center gap-2 px-3 py-2"
+            style={{ background: 'var(--error-subtle)' }}
           >
-            <span className="text-xs" style={{ color: 'var(--error)' }}>
+            <span className="text-xs flex-1" style={{ color: 'var(--error)' }}>
               Borrar todo?
             </span>
             <button
@@ -206,177 +308,82 @@ export function FlowToolbar({
                 onClearFlow();
                 setShowClearConfirm(false);
               }}
-              className="px-2 py-0.5 rounded text-xs font-medium transition-colors"
-              style={{
-                background: 'var(--error)',
-                color: 'white',
-              }}
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{ background: 'var(--error)', color: 'white' }}
             >
-              Borrar
+              Si
             </button>
             <button
               onClick={() => setShowClearConfirm(false)}
-              className="px-2 py-0.5 rounded text-xs font-medium transition-colors"
+              className="px-2 py-0.5 rounded text-xs font-medium"
               style={{
                 background: 'var(--bg-tertiary)',
                 color: 'var(--text-secondary)',
-                border: '1px solid var(--border-subtle)',
               }}
             >
-              Cancelar
+              No
             </button>
           </div>
         )}
+      </ToolbarDropdown>
 
-        {/* Auto-layout */}
-        {hasNodes && (
-          <button
-            onClick={onAutoLayout}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all hover:scale-105"
-            style={{
-              background: 'var(--bg-tertiary)',
-              border: '1px solid var(--border-subtle)',
-              color: 'var(--text-secondary)',
-            }}
-            title="Ordenar flujo automaticamente"
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            <span className="text-xs font-medium">Ordenar</span>
-          </button>
-        )}
-
-        {/* Fit view */}
-        <button
-          onClick={onFitView}
-          disabled={!hasNodes}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-subtle)',
-            color: 'var(--text-secondary)',
-          }}
-          title="Ajustar vista"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Ajustar</span>
-        </button>
-
-        {/* Validation */}
-        <button
+      {/* Export dropdown */}
+      <ToolbarDropdown
+        label="Exportar"
+        icon={Download}
+        badge={validationWarningCount}
+        badgeColor="var(--warning)"
+      >
+        <DropdownItem
+          icon={Shield}
+          label={`Validar flujo${validationWarningCount > 0 ? ` (${validationWarningCount})` : ''}`}
           onClick={onToggleValidation}
           disabled={!hasNodes}
-          className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            background: validationWarningCount > 0 ? 'var(--warning-subtle)' : 'var(--bg-tertiary)',
-            border: `1px solid ${validationWarningCount > 0 ? 'rgba(227, 179, 65, 0.3)' : 'var(--border-subtle)'}`,
-            color: validationWarningCount > 0 ? 'var(--warning)' : 'var(--text-secondary)',
-          }}
-          title="Validar flujo"
-        >
-          <Shield className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Validar</span>
-          {validationWarningCount > 0 && (
-            <span
-              className="absolute -top-1.5 -right-1.5 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full"
-              style={{
-                background: 'var(--warning)',
-                color: 'var(--bg-primary)',
-              }}
-            >
-              {validationWarningCount > 9 ? '9+' : validationWarningCount}
-            </span>
-          )}
-        </button>
-
-        {/* Export ASCII */}
-        <button
+          color={validationWarningCount > 0 ? 'var(--warning)' : undefined}
+        />
+        <DropdownDivider />
+        <DropdownItem
+          icon={FileText}
+          label="Copiar como ASCII"
           onClick={onExportAscii}
           disabled={!hasNodes}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            background: 'var(--bg-tertiary)',
-            border: '1px solid var(--border-subtle)',
-            color: 'var(--text-secondary)',
-          }}
-          title="Exportar como ASCII"
-        >
-          <FileText className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">ASCII</span>
-        </button>
-
-        {/* Insert in Prompt */}
-        <button
+        />
+        <DropdownItem
+          icon={FileInput}
+          label="Insertar en prompt"
           onClick={onInsertInPrompt}
           disabled={!hasNodes}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed"
-          style={{
-            background: hasNodes ? 'rgba(0, 212, 170, 0.1)' : 'var(--bg-tertiary)',
-            border: `1px solid ${hasNodes ? 'rgba(0, 212, 170, 0.3)' : 'var(--border-subtle)'}`,
-            color: hasNodes ? 'var(--accent-primary)' : 'var(--text-muted)',
-          }}
-          title="Insertar diagrama ASCII en el prompt"
-        >
-          <FileInput className="h-3.5 w-3.5" />
-          <span className="text-xs font-medium">Insertar en prompt</span>
-        </button>
-      </div>
+          color="var(--accent-primary)"
+        />
+      </ToolbarDropdown>
 
-      {/* Divider */}
-      <div
-        className="h-6 w-px"
-        style={{ background: 'var(--border-default)' }}
-      />
-
-      {/* Templates */}
-      <button
-        onClick={onOpenTemplates}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all hover:scale-105"
-        style={{
-          background: 'var(--bg-tertiary)',
-          border: '1px solid var(--border-subtle)',
-          color: 'var(--text-secondary)',
-        }}
-        title="Usar plantilla de flujo"
-      >
-        <LayoutTemplate className="h-3.5 w-3.5" />
-        <span className="text-xs font-medium">Plantillas</span>
-      </button>
-
-      {/* Generate Prompt Sections */}
-      <button
-        onClick={onGeneratePromptSections}
-        disabled={!hasNodes}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-all hover:scale-105 disabled:opacity-30 disabled:cursor-not-allowed"
-        style={{
-          background: hasNodes ? 'rgba(168, 85, 247, 0.1)' : 'var(--bg-tertiary)',
-          border: `1px solid ${hasNodes ? 'rgba(168, 85, 247, 0.3)' : 'var(--border-subtle)'}`,
-          color: hasNodes ? '#a855f7' : 'var(--text-muted)',
-        }}
-        title="Generar secciones de prompt desde el flujo"
-      >
-        <Wand2 className="h-3.5 w-3.5" />
-        <span className="text-xs font-medium">Generar Prompt</span>
-      </button>
+      {/* Generate dropdown */}
+      <ToolbarDropdown label="Generar" icon={Wand2}>
+        <DropdownItem
+          icon={LayoutTemplate}
+          label="Usar plantilla"
+          onClick={onOpenTemplates}
+        />
+        <DropdownItem
+          icon={Wand2}
+          label="Generar secciones de prompt"
+          onClick={onGeneratePromptSections}
+          disabled={!hasNodes}
+          color="#a855f7"
+        />
+        <DropdownDivider />
+        <DropdownItem
+          icon={Sparkles}
+          label="Generar flujo con IA"
+          onClick={onGenerateFromNL}
+          color="var(--accent-primary)"
+        />
+      </ToolbarDropdown>
 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Generate with AI */}
-      <button
-        onClick={onGenerateFromNL}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all hover:scale-105"
-        style={{
-          background: 'var(--accent-glow)',
-          border: '1px solid var(--accent-primary)',
-          color: 'var(--accent-primary)',
-        }}
-        title="Generar flujo con IA"
-      >
-        <Sparkles className="h-4 w-4" />
-        <span className="text-sm font-medium">Generar con IA</span>
-      </button>
-
-      {/* Create initial flow */}
+      {/* Create initial flow (prominent when no nodes) */}
       {!hasNodes && (
         <button
           onClick={onCreateInitialFlow}
