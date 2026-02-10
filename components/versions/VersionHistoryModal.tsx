@@ -45,7 +45,7 @@ export function VersionHistoryModal({ isOpen, onClose }: VersionHistoryModalProp
 
       {/* Modal */}
       <div
-        className="relative w-full max-w-xl max-h-[80vh] rounded-2xl overflow-hidden animate-slideUp"
+        className="relative w-full max-w-xl max-h-[80vh] rounded-2xl overflow-hidden animate-fadeIn"
         style={{
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border-default)',

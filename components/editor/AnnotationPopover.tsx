@@ -249,7 +249,7 @@ export function AnnotationPopover({
         style={{
           left: `${finalPosition.x}px`,
           top: `${finalPosition.y}px`,
-          width: '340px',
+          width: '380px',
           maxWidth: 'calc(100vw - 32px)',
           background: 'var(--bg-elevated)',
           border: '1px solid var(--border-default)',
@@ -282,29 +282,29 @@ export function AnnotationPopover({
       </div>
 
       {/* Selected text preview */}
-      <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+      <div className="px-3 py-2.5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>
           Texto seleccionado
         </p>
         <p
-          className="text-xs font-mono line-clamp-2 p-2 rounded-lg"
-          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+          className="text-xs font-mono line-clamp-3 px-2.5 py-2 rounded-lg overflow-hidden"
+          style={{ background: 'var(--bg-tertiary)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }}
         >
-          {selectedText.length > 100 ? selectedText.substring(0, 100) + '...' : selectedText}
+          {selectedText.length > 150 ? selectedText.substring(0, 150) + '...' : selectedText}
         </p>
       </div>
 
       {/* Type selector */}
-      <div className="px-3 py-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+      <div className="px-3 py-2.5 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         <p className="text-[10px] uppercase tracking-wider mb-2" style={{ color: 'var(--text-muted)' }}>
           Tipo
         </p>
-        <div className="flex gap-1">
+        <div className="grid grid-cols-4 gap-1.5">
           {annotationTypes.map((t) => (
             <button
               key={t.type}
               onClick={() => setType(t.type)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-all"
+              className="flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] transition-all"
               style={{
                 background: type === t.type ? 'var(--accent-subtle)' : 'var(--bg-tertiary)',
                 color: type === t.type ? t.color : 'var(--text-secondary)',
@@ -312,23 +312,23 @@ export function AnnotationPopover({
               }}
             >
               {t.icon}
-              <span className="hidden sm:inline">{t.label}</span>
+              {t.label}
             </button>
           ))}
         </div>
       </div>
 
       {/* Comment input */}
-      <div className="px-3 py-2">
+      <div className="px-3 py-2.5">
         <textarea
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="Escribe tu comentario..."
-          className="w-full h-20 px-3 py-2 text-sm rounded-lg resize-none focus:outline-none focus:ring-2"
+          className="w-full h-20 px-3 py-2 text-sm rounded-lg resize-none focus:outline-none"
           style={{
             background: 'var(--bg-tertiary)',
             color: 'var(--text-primary)',
-            border: '1px solid var(--border-subtle)',
+            border: '1px solid var(--accent-primary)',
           }}
           autoFocus
         />

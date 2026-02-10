@@ -85,11 +85,23 @@ export function ResizablePanels({
     };
   }, [isDragging, minRatio, maxRatio, storageKey]);
 
-  const active = isDragging || isHovering;
+  // Show hint pulse on first use
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem(storageKey)) {
+        setShowHint(true);
+        const timer = setTimeout(() => setShowHint(false), 3000);
+        return () => clearTimeout(timer);
+      }
+    } catch {}
+  }, [storageKey]);
+
+  const active = isDragging || isHovering || showHint;
 
   const barColor = isDragging
     ? 'var(--accent-primary)'
-    : isHovering
+    : (isHovering || showHint)
       ? 'color-mix(in srgb, var(--accent-primary) 50%, transparent)'
       : 'var(--border-subtle)';
 

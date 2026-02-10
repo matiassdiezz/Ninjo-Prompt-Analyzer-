@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { X, Keyboard, Command } from 'lucide-react';
+import { X, Keyboard, Command, BookOpen } from 'lucide-react';
 
 interface KeyboardShortcutsModalProps {
   isOpen: boolean;
@@ -71,7 +71,7 @@ export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsMod
               <Keyboard className="h-5 w-5" style={{ color: 'var(--accent-primary)' }} />
             </div>
             <h2 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Atajos de teclado
+              Ayuda
             </h2>
           </div>
           <button
@@ -123,6 +123,39 @@ export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsMod
               </div>
             </div>
           ))}
+
+          {/* Glossary */}
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <BookOpen className="h-3.5 w-3.5" style={{ color: 'var(--accent-primary)' }} />
+              <h3
+                className="text-xs font-semibold uppercase tracking-wider"
+                style={{ color: 'var(--text-muted)' }}
+              >
+                Glosario
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {[
+                { term: 'Proyecto', definition: 'Agrupa los agentes de un mismo cliente o negocio' },
+                { term: 'Agente', definition: 'Un bot que responde en un canal especifico (Instagram, WhatsApp, etc.)' },
+                { term: 'Canal', definition: 'La plataforma donde opera el agente (Instagram DM, WhatsApp, TikTok, Web)' },
+                { term: 'Prompt', definition: 'Las instrucciones que definen como se comporta el agente' },
+                { term: 'Version', definition: 'Un snapshot guardado del prompt, para poder volver atras' },
+                { term: 'Memoria', definition: 'Patrones y anti-patrones aprendidos, compartidos entre proyectos' },
+                { term: 'QA', definition: 'Quality Assurance - revision y mejora de prompts usando el chat Ninjo' },
+              ].map(item => (
+                <div key={item.term} className="flex items-baseline gap-2 py-1">
+                  <span className="text-xs font-medium flex-shrink-0" style={{ color: 'var(--text-primary)', minWidth: 70 }}>
+                    {item.term}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {item.definition}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

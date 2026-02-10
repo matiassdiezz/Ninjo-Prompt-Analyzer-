@@ -34,6 +34,8 @@ import {
   Minimize2,
   Copy,
   Search,
+  Undo2,
+  Redo2,
 } from 'lucide-react';
 
 interface EditorPanelProps {
@@ -72,6 +74,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     pushUndo,
     undo,
     redo,
+    canUndo,
+    canRedo,
     createVersion,
     promptHistory,
     hasUnsavedChanges,
@@ -664,10 +668,6 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           {/* Stats - only show when there's content */}
           {hasContent && (
             <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-              <div className="flex items-center gap-1.5">
-                <Hash className="h-3 w-3" />
-                <span>{lineCount}</span>
-              </div>
               <div
                 className="flex items-center gap-1.5 px-2 py-0.5 rounded-full"
                 style={{ background: 'var(--accent-subtle)' }}
@@ -718,6 +718,42 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                   style={{ background: 'var(--warning)' }}
                 />
               )}
+            </div>
+          )}
+
+          {/* Undo/Redo buttons */}
+          {hasContent && (
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={undo}
+                disabled={!canUndo()}
+                className={headerActionButtonClassName}
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: canUndo() ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  border: '1px solid rgba(88, 166, 255, 0.18)',
+                  opacity: canUndo() ? 1 : 0.4,
+                }}
+                aria-label="Deshacer"
+                title="Deshacer"
+              >
+                <Undo2 className="h-3 w-3" />
+              </button>
+              <button
+                onClick={redo}
+                disabled={!canRedo()}
+                className={headerActionButtonClassName}
+                style={{
+                  background: 'var(--bg-elevated)',
+                  color: canRedo() ? 'var(--text-secondary)' : 'var(--text-muted)',
+                  border: '1px solid rgba(88, 166, 255, 0.18)',
+                  opacity: canRedo() ? 1 : 0.4,
+                }}
+                aria-label="Rehacer"
+                title="Rehacer"
+              >
+                <Redo2 className="h-3 w-3" />
+              </button>
             </div>
           )}
 
@@ -815,6 +851,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                 border: '1px solid rgba(88, 166, 255, 0.18)',
               }}
               title="Copiar prompt"
+              aria-label="Copiar prompt"
             >
               {justCopied ? (
                 <>
@@ -841,6 +878,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                 border: '1px solid rgba(88, 166, 255, 0.18)',
               }}
               title="Expandir editor"
+              aria-label="Expandir editor"
             >
               <Maximize2 className="h-3 w-3" />
             </button>
@@ -856,6 +894,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                 border: '1px solid rgba(88, 166, 255, 0.18)',
               }}
               title="Minimizar editor"
+              aria-label="Minimizar editor"
             >
               <Minimize2 className="h-3 w-3" />
             </button>

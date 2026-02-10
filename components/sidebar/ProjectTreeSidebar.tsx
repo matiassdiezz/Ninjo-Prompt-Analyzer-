@@ -132,6 +132,7 @@ export function ProjectTreeSidebar({
           onClick={onToggleCollapse}
           className="p-2 rounded-lg transition-colors hover:bg-[var(--bg-tertiary)]"
           title="Expandir sidebar"
+          aria-label="Expandir sidebar"
         >
           <PanelLeft className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
         </button>
@@ -150,6 +151,7 @@ export function ProjectTreeSidebar({
             color: activeView === 'memory' ? 'var(--accent-primary)' : 'var(--text-secondary)',
           }}
           title="Memoria"
+          aria-label="Memoria"
         >
           <Brain className="h-4 w-4" />
         </button>
@@ -162,6 +164,7 @@ export function ProjectTreeSidebar({
             color: activeView === 'projects' ? 'var(--accent-primary)' : 'var(--text-secondary)',
           }}
           title="Proyectos"
+          aria-label="Proyectos"
         >
           <LayoutGrid className="h-4 w-4" />
         </button>
@@ -171,6 +174,7 @@ export function ProjectTreeSidebar({
           className="p-2 rounded-lg transition-colors hover:bg-[var(--accent-glow)]"
           style={{ color: 'var(--accent-primary)' }}
           title="Nuevo proyecto"
+          aria-label="Nuevo proyecto"
         >
           <Plus className="h-4 w-4" />
         </button>
@@ -201,6 +205,7 @@ export function ProjectTreeSidebar({
           onClick={onToggleCollapse}
           className="p-1.5 rounded-md transition-colors hover:bg-[var(--bg-tertiary)]"
           title="Colapsar sidebar"
+          aria-label="Colapsar sidebar"
         >
           <PanelLeftClose className="h-4 w-4" style={{ color: 'var(--text-muted)' }} />
         </button>
@@ -409,6 +414,9 @@ export function ProjectTreeSidebar({
           <Plus className="h-3.5 w-3.5" />
           Nuevo Proyecto
         </button>
+        <p className="text-[10px] text-center mt-2" style={{ color: 'var(--text-muted)' }}>
+          Presiona <kbd className="px-1 py-0.5 rounded text-[10px]" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>?</kbd> para atajos
+        </p>
       </div>
     </div>
   );

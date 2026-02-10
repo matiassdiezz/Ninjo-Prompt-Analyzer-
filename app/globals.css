@@ -508,6 +508,34 @@ textarea {
   transform: translateX(-50%) translateY(-4px);
 }
 
+/* Tooltip positions */
+.tooltip[data-tooltip-pos="bottom"]::before {
+  bottom: auto;
+  top: 100%;
+}
+.tooltip[data-tooltip-pos="bottom"]:hover::before {
+  transform: translateX(-50%) translateY(4px);
+}
+.tooltip[data-tooltip-pos="left"]::before {
+  bottom: auto;
+  top: 50%;
+  left: auto;
+  right: 100%;
+  transform: translateY(-50%);
+}
+.tooltip[data-tooltip-pos="left"]:hover::before {
+  transform: translateY(-50%) translateX(-4px);
+}
+.tooltip[data-tooltip-pos="right"]::before {
+  bottom: auto;
+  top: 50%;
+  left: 100%;
+  transform: translateY(-50%);
+}
+.tooltip[data-tooltip-pos="right"]:hover::before {
+  transform: translateY(-50%) translateX(4px);
+}
+
 /* Line clamp utility */
 .line-clamp-2 {
   display: -webkit-box;

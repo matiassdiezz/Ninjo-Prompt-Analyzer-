@@ -22,19 +22,24 @@ import { KeyboardShortcutsModal } from '@/components/ui/KeyboardShortcutsModal';
 import { useSupabaseInit } from '@/lib/supabase/hooks/useSupabaseInit';
 import { useAgentSync } from '@/lib/hooks/useAgentSync';
 import type { KnowledgeEntry, Agent } from '@/types/prompt';
+import { WelcomeModal } from '@/components/ui/WelcomeModal';
+import { Tooltip } from '@/components/ui/Tooltip';
 import {
   AlertCircle,
   GitBranch,
   Settings,
   Workflow,
-
   FileText,
   Instagram,
   MessageCircle,
   Music,
   Globe,
   Sparkles,
+  Loader2,
+  LayoutGrid,
+  FolderOpen,
 } from 'lucide-react';
+import Image from 'next/image';
 
 type ActiveView = 'workspace' | 'memory' | 'projects' | 'history' | 'flowchart';
 
@@ -55,6 +60,8 @@ export default function Home() {
     createProject,
     setCurrentProject,
     setCurrentAgent,
+    sync,
+    clearSyncError,
   } = useKnowledgeStore();
 
   const project = getCurrentProject();
@@ -62,7 +69,7 @@ export default function Home() {
   const versionsCount = agent?.versions?.length || 0;
 
   // Initialize Supabase sync
-  useSupabaseInit();
+  const { isLoading: isSupabaseLoading } = useSupabaseInit();
 
   // Sync editor prompt with current agent
   useAgentSync();
@@ -98,6 +105,14 @@ export default function Home() {
   const [agentModalProjectId, setAgentModalProjectId] = useState('');
   const [agentModalEdit, setAgentModalEdit] = useState<Agent | null>(null);
 
+  // Welcome modal state
+  const [showWelcome, setShowWelcome] = useState(false);
+  useEffect(() => {
+    if (mounted && !localStorage.getItem('ninjo-welcome-dismissed')) {
+      setShowWelcome(true);
+    }
+  }, [mounted]);
+
   // Toast notifications for new learnings
   const [newLearningToasts, setNewLearningToasts] = useState<KnowledgeEntry[]>([]);
 
@@ -118,6 +133,9 @@ export default function Home() {
   const handleCreateProject = () => {
     const id = createProject('Nuevo Proyecto', '');
     setCurrentProject(id);
+    setAgentModalProjectId(id);
+    setAgentModalEdit(null);
+    setAgentModalOpen(true);
     setActiveView('workspace');
   };
 
@@ -142,6 +160,23 @@ export default function Home() {
   ];
 
   const ChannelIcon = agent ? (CHANNEL_ICONS[agent.channelType.toLowerCase()] || Sparkles) : null;
+
+  // Loading state
+  if (!mounted || isSupabaseLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-pulse-slow">
+            <Image src="/images/LogoNazare.png" alt="Nazare" width={48} height={48} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" style={{ color: 'var(--accent-primary)' }} />
+            <span className="text-sm" style={{ color: 'var(--text-muted)' }}>Cargando...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen flex noise-overlay" style={{ background: 'var(--bg-primary)' }}>
@@ -262,17 +297,18 @@ export default function Home() {
 
             {/* Settings / Data Manager */}
             <div className="relative">
-              <button
-                onClick={() => setShowDataManager(!showDataManager)}
-                className="flex items-center justify-center p-2 rounded-lg transition-all duration-200"
-                style={{
-                  background: showDataManager ? 'var(--accent-glow)' : 'var(--bg-tertiary)',
-                  color: showDataManager ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                }}
-                title="Gestion de datos"
-              >
-                <Settings className="h-4 w-4" />
-              </button>
+              <Tooltip content="Gestion de datos" position="bottom">
+                <button
+                  onClick={() => setShowDataManager(!showDataManager)}
+                  className="flex items-center justify-center p-2 rounded-lg transition-all duration-200"
+                  style={{
+                    background: showDataManager ? 'var(--accent-glow)' : 'var(--bg-tertiary)',
+                    color: showDataManager ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                  }}
+                >
+                  <Settings className="h-4 w-4" />
+                </button>
+              </Tooltip>
 
               {showDataManager && (
                 <>
@@ -295,6 +331,29 @@ export default function Home() {
             </div>
           </div>
         </header>
+
+        {/* Sync error banner */}
+        {sync.syncError && (
+          <div
+            className="flex items-center gap-2 px-4 py-2 text-xs animate-slideDown"
+            style={{
+              background: 'var(--error-subtle)',
+              borderBottom: '1px solid rgba(248, 81, 73, 0.2)',
+            }}
+          >
+            <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" style={{ color: 'var(--error)' }} />
+            <span style={{ color: 'var(--error)' }}>
+              Error de sincronizacion: {sync.syncError}
+            </span>
+            <button
+              onClick={clearSyncError}
+              className="ml-auto text-xs underline"
+              style={{ color: 'var(--text-muted)' }}
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
 
         {/* Main Content */}
         <main className="flex-1 min-h-0">
@@ -327,45 +386,90 @@ export default function Home() {
 
           {(activeView === 'workspace' || activeView === 'history') && (
             <div className="h-full p-4">
-              <ResizablePanels
-                defaultRatio={0.55}
-                minRatio={0.3}
-                maxRatio={0.8}
-                storageKey="ninjo-editor-chat-ratio"
-              >
-                <div className="flex flex-col gap-4 min-w-0 h-full">
-                  {/* Editor */}
-                  <div className="flex-1 card overflow-hidden min-h-0 glow-border animate-fadeIn">
-                    <EditorPanel />
-                  </div>
-
-                  {/* Context (Collapsible) */}
-                  <div className="flex-shrink-0 animate-slideUp" style={{ animationDelay: '0.1s' }}>
-                    <ContextCollapsible />
-                  </div>
-
-                  {/* Error */}
-                  {error && (
+              {/* Empty state when no project selected */}
+              {!currentProjectId ? (
+                <div className="h-full flex items-center justify-center animate-fadeIn">
+                  <div className="text-center max-w-sm">
                     <div
-                      className="flex-shrink-0 rounded-xl p-4 flex items-start gap-3 animate-slideUp"
-                      style={{
-                        background: 'var(--error-subtle)',
-                        border: '1px solid rgba(248, 81, 73, 0.2)',
-                      }}
+                      className="mx-auto mb-4 h-14 w-14 rounded-xl flex items-center justify-center"
+                      style={{ background: 'var(--accent-glow)' }}
                     >
-                      <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
-                      <div>
-                        <p className="font-semibold text-sm" style={{ color: 'var(--error)' }}>Error</p>
-                        <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{error}</p>
-                      </div>
+                      <FolderOpen className="h-7 w-7" style={{ color: 'var(--accent-primary)' }} />
                     </div>
-                  )}
+                    <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                      Selecciona o crea un proyecto para empezar
+                    </h3>
+                    <p className="text-xs mb-5" style={{ color: 'var(--text-muted)' }}>
+                      Usa el sidebar para navegar entre proyectos y agentes
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => setActiveView('projects')}
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg transition-colors"
+                        style={{
+                          background: 'var(--bg-tertiary)',
+                          color: 'var(--text-secondary)',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <LayoutGrid className="h-3.5 w-3.5" />
+                        Ver proyectos
+                      </button>
+                      <button
+                        onClick={handleCreateProject}
+                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg transition-colors"
+                        style={{
+                          background: 'var(--accent-primary)',
+                          color: 'var(--bg-primary)',
+                        }}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                        Nuevo proyecto
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              ) : (
+                <ResizablePanels
+                  defaultRatio={0.55}
+                  minRatio={0.3}
+                  maxRatio={0.8}
+                  storageKey="ninjo-editor-chat-ratio"
+                >
+                  <div className="flex flex-col gap-4 min-w-0 h-full">
+                    {/* Editor */}
+                    <div className="flex-1 card overflow-hidden min-h-0 glow-border animate-fadeIn">
+                      <EditorPanel />
+                    </div>
 
-                <div className="card overflow-hidden h-full animate-slideUp" style={{ animationDelay: '0.05s' }}>
-                  <NinjoChatPanel />
-                </div>
-              </ResizablePanels>
+                    {/* Context (Collapsible) */}
+                    <div className="flex-shrink-0 animate-slideUp" style={{ animationDelay: '0.1s' }}>
+                      <ContextCollapsible />
+                    </div>
+
+                    {/* Error */}
+                    {error && (
+                      <div
+                        className="flex-shrink-0 rounded-xl p-4 flex items-start gap-3 animate-slideUp"
+                        style={{
+                          background: 'var(--error-subtle)',
+                          border: '1px solid rgba(248, 81, 73, 0.2)',
+                        }}
+                      >
+                        <AlertCircle className="h-5 w-5 flex-shrink-0" style={{ color: 'var(--error)' }} />
+                        <div>
+                          <p className="font-semibold text-sm" style={{ color: 'var(--error)' }}>Error</p>
+                          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="card overflow-hidden h-full animate-slideUp" style={{ animationDelay: '0.05s' }}>
+                    <NinjoChatPanel />
+                  </div>
+                </ResizablePanels>
+              )}
             </div>
           )}
         </main>
@@ -397,6 +501,13 @@ export default function Home() {
         onClose={() => setAgentModalOpen(false)}
         projectId={agentModalProjectId}
         editAgent={agentModalEdit}
+      />
+
+      {/* Welcome Modal */}
+      <WelcomeModal
+        isOpen={showWelcome}
+        onClose={() => setShowWelcome(false)}
+        onCreateProject={handleCreateProject}
       />
     </div>
   );

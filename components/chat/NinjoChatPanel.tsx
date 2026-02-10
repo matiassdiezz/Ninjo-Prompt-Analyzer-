@@ -706,6 +706,7 @@ export function NinjoChatPanel() {
               color: input.trim() ? '#0a0e14' : 'var(--text-muted)',
               border: input.trim() ? 'none' : '1px solid var(--border-subtle)',
             }}
+            aria-label="Enviar mensaje"
           >
             <Send className="h-5 w-5" />
           </button>

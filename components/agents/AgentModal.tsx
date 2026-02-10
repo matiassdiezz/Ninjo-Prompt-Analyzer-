@@ -118,6 +118,13 @@ export function AgentModal({ isOpen, onClose, projectId, editAgent }: AgentModal
 
         {/* Content */}
         <div className="px-5 py-4 space-y-4">
+          {/* Helper text for new agents */}
+          {!editAgent && (
+            <p className="text-xs rounded-lg px-3 py-2" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-muted)' }}>
+              Un agente es un bot que responde en un canal especifico (Instagram, WhatsApp, etc.)
+            </p>
+          )}
+
           {/* Channel Selector */}
           <div>
             <label className="text-xs font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
