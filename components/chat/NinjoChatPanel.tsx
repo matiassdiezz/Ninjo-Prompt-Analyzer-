@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAnalysisStore } from '@/store/analysisStore';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
-import { MessageCircle, Send, Loader2, Sparkles, FileText, Zap, X, Brain } from 'lucide-react';
+import { MessageCircle, Send, Loader2, Sparkles, FileText, Zap, X, Brain, ClipboardPaste, SearchCheck, TestTube, HelpCircle, RefreshCw, ArrowLeft } from 'lucide-react';
 import { LearningCard } from './LearningCard';
 import { MarkdownMessage } from './MarkdownMessage';
 import { DuplicatePatternAlert, TestingSuggestionsAlert } from './DuplicatePatternAlert';
@@ -20,24 +20,28 @@ interface ChatMessageWithLearnings extends ChatMessage {
 
 const SUGGESTED_QUESTIONS = [
   {
-    label: 'QA inicial',
-    text: 'Hacé el QA inicial de este prompt',
-    icon: Zap,
+    label: 'Revisa este prompt',
+    text: 'Hace un QA completo de este prompt. Revisa estructura, consistencia, flujos de conversacion, keywords, manejo de objeciones, y todo lo que pueda mejorar.',
+    icon: SearchCheck,
+    description: 'QA completo del prompt',
   },
   {
-    label: 'Feedback del cliente',
-    text: 'Tengo este feedback del cliente: [pegar feedback aquí]',
-    icon: MessageCircle,
+    label: 'Tengo feedback',
+    text: '__FEEDBACK_MODE__',
+    icon: ClipboardPaste,
+    description: 'Aplicar feedback del cliente',
   },
   {
-    label: 'Casos de testing',
-    text: 'Generá casos de testing para este agente',
-    icon: FileText,
+    label: 'Genera test cases',
+    text: 'Genera casos de testing para este agente. Incluí happy path, edge cases, objeciones comunes, y situaciones donde el agente debería escalar.',
+    icon: TestTube,
+    description: 'Tests para validar el agente',
   },
   {
-    label: 'Diagnóstico',
-    text: 'El agente no está convirtiendo, diagnosticalo',
-    icon: Sparkles,
+    label: '¿Que falta?',
+    text: 'Analiza la completitud de este prompt. ¿Que secciones faltan? ¿Hay flujos de conversacion sin cubrir? ¿Faltan keywords, objeciones, o edge cases importantes?',
+    icon: HelpCircle,
+    description: 'Analizar completitud',
   },
 ];
 
@@ -58,6 +62,10 @@ export function NinjoChatPanel() {
   const [currentTestingSuggestions, setCurrentTestingSuggestions] = useState<any[]>([]);
   const [showDuplicates, setShowDuplicates] = useState(false);
   const [showTestingSuggestions, setShowTestingSuggestions] = useState(false);
+
+  // Feedback mode state
+  const [feedbackMode, setFeedbackMode] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
 
   // State for save to memory modal
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -94,6 +102,13 @@ export function NinjoChatPanel() {
   };
 
   const insertSuggestedQuestion = (text: string) => {
+    // Special handling for feedback mode
+    if (text === '__FEEDBACK_MODE__') {
+      setFeedbackMode(true);
+      setFeedbackText('');
+      return;
+    }
+
     setInput(text);
 
     // Focus + move caret to end
@@ -109,6 +124,14 @@ export function NinjoChatPanel() {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
     });
+  };
+
+  const handleSendFeedback = () => {
+    if (!feedbackText.trim()) return;
+    const feedbackMessage = `[MODO FEEDBACK] El siguiente es feedback literal del cliente que necesito aplicar al prompt. Interpreta lo que pide, identifica las secciones afectadas, y propone los cambios exactos en formato MODIFICACIONES SECCION POR SECCION:\n\n${feedbackText.trim()}`;
+    setFeedbackMode(false);
+    setFeedbackText('');
+    sendMessage(feedbackMessage);
   };
 
   const sendMessage = async (question: string) => {
@@ -211,9 +234,14 @@ export function NinjoChatPanel() {
       }
     } catch (error) {
       console.error('Chat error:', error);
+      const errorMsg = error instanceof Error ? error.message : '';
+      const isNetworkError = errorMsg.includes('fetch') || errorMsg.includes('network') || errorMsg.includes('Failed to fetch');
+      const friendlyMessage = isNetworkError
+        ? 'No se pudo conectar con el asistente. Verifica tu conexion e intenta de nuevo.'
+        : 'Hubo un error al procesar tu mensaje. Intenta de nuevo en unos segundos.';
       addChatMessage({
         role: 'assistant',
-        content: `Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
+        content: friendlyMessage,
         timestamp: Date.now(),
       });
     } finally {
@@ -522,41 +550,96 @@ export function NinjoChatPanel() {
         {messagesWithLearnings.length === 0 ? (
           // Suggested questions when empty
           <div className="h-full flex flex-col items-center justify-center">
-            <div
-              className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-              style={{ background: 'var(--accent-subtle)', border: '1px solid var(--border-accent)' }}
-            >
-              <Sparkles className="h-7 w-7" style={{ color: 'var(--accent-primary)' }} />
-            </div>
-            <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-              ¿Cómo puedo ayudarte?
-            </h3>
-            <p className="text-xs mb-6 text-center max-w-xs" style={{ color: 'var(--text-tertiary)' }}>
-              Soy tu asistente de prompt engineering especializado en Ninjo
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
-              {SUGGESTED_QUESTIONS.map((q, index) => {
-                const Icon = q.icon;
-                return (
+            {feedbackMode ? (
+              // Feedback mode UI
+              <div className="w-full max-w-md px-4">
+                <div className="flex items-center gap-2 mb-4">
                   <button
-                    key={index}
-                    onClick={() => insertSuggestedQuestion(q.text)}
-                    disabled={isLoading}
-                    className="flex flex-col items-start gap-2 p-3 rounded-xl text-left transition-all duration-200 hover:scale-[1.02]"
-                    style={{
-                      background: 'var(--bg-elevated)',
-                      border: '1px solid var(--border-subtle)',
-                    }}
+                    onClick={() => setFeedbackMode(false)}
+                    className="p-1.5 rounded-lg transition-colors hover:bg-[var(--bg-tertiary)]"
                   >
-                    <Icon className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
-                    <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                      {q.label}
-                    </span>
+                    <ArrowLeft className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
                   </button>
-                );
-              })}
-            </div>
+                  <div className="flex items-center gap-2">
+                    <ClipboardPaste className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+                    <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      Feedback del cliente
+                    </h3>
+                  </div>
+                </div>
+                <p className="text-xs mb-3" style={{ color: 'var(--text-tertiary)' }}>
+                  Pega el feedback del cliente tal cual te llego (WhatsApp, email, notas de la call). El asistente lo va a interpretar y proponer los cambios exactos.
+                </p>
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder={'Ej: "Quiero que el bot no hable de precios hasta que el lead este calificado" o "Cuando preguntan por horarios deberia mandar el link de agendar"'}
+                  rows={6}
+                  className="w-full px-4 py-3 text-sm rounded-xl resize-none mb-3"
+                  style={{
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-default)',
+                    color: 'var(--text-primary)',
+                    outline: 'none',
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={handleSendFeedback}
+                  disabled={!feedbackText.trim() || isLoading}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: feedbackText.trim() ? 'var(--accent-primary)' : 'var(--bg-elevated)',
+                    color: feedbackText.trim() ? '#0a0e14' : 'var(--text-muted)',
+                  }}
+                >
+                  <Send className="h-4 w-4" />
+                  Aplicar feedback
+                </button>
+              </div>
+            ) : (
+              // Normal suggested actions
+              <>
+                <div
+                  className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+                  style={{ background: 'var(--accent-subtle)', border: '1px solid var(--border-accent)' }}
+                >
+                  <Sparkles className="h-7 w-7" style={{ color: 'var(--accent-primary)' }} />
+                </div>
+                <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                  ¿Que necesitas?
+                </h3>
+                <p className="text-xs mb-6 text-center max-w-xs" style={{ color: 'var(--text-tertiary)' }}>
+                  Asistente de QA especializado en prompts de agentes Ninjo
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 w-full max-w-sm">
+                  {SUGGESTED_QUESTIONS.map((q, index) => {
+                    const Icon = q.icon;
+                    return (
+                      <button
+                        key={index}
+                        onClick={() => insertSuggestedQuestion(q.text)}
+                        disabled={isLoading}
+                        className="flex flex-col items-start gap-2 p-3 rounded-xl text-left transition-all duration-200 hover:scale-[1.02]"
+                        style={{
+                          background: 'var(--bg-elevated)',
+                          border: '1px solid var(--border-subtle)',
+                        }}
+                      >
+                        <Icon className="h-4 w-4" style={{ color: 'var(--accent-primary)' }} />
+                        <span className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
+                          {q.label}
+                        </span>
+                        <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                          {q.description}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         ) : (
           // Messages

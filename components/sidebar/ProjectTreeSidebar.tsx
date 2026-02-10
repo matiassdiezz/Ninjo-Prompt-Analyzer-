@@ -83,7 +83,7 @@ export function ProjectTreeSidebar({
     return projects.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.clientName?.toLowerCase().includes(q) ||
-      p.agents.some(a => a.name.toLowerCase().includes(q))
+      (p.agents || []).some(a => a.name.toLowerCase().includes(q))
     );
   }, [projects, searchQuery]);
 
@@ -274,7 +274,7 @@ export function ProjectTreeSidebar({
                 {/* Agents */}
                 {isExpanded && (
                   <div className="ml-3 mt-0.5">
-                    {project.agents.map(agent => {
+                    {(project.agents || []).map(agent => {
                       const { icon: ChannelIcon, color: channelColor } = getChannelIcon(agent.channelType);
                       const isAgentActive = isActive && agent.id === project.currentAgentId;
 

@@ -39,8 +39,12 @@ export const versionsRepository = {
     return mapDbVersionToApp(data as DbPromptVersion);
   },
 
-  async createWithId(version: PromptVersion, agentId: string): Promise<PromptVersion | null> {
+  async createWithId(version: PromptVersion, agentId: string): Promise<PromptVersion | null | 'FK_ERROR'> {
     if (!supabase) return null;
+    if (!agentId) {
+      console.error('Cannot create version: missing agentId', { versionId: version.id });
+      return null;
+    }
 
     const dbVersion = mapAppVersionToDbInsert(version, agentId);
 
@@ -51,11 +55,9 @@ export const versionsRepository = {
       .single();
 
     if (error) {
-      console.error('Error creating version with ID:', {
-        error,
-        code: error.code,
-        message: error.message,
-      });
+      console.error(`Error creating version ${version.id} for agent ${agentId}:`, error.message || error.code || error);
+      // FK constraint = permanent error, don't retry
+      if (error.code === '23503') return 'FK_ERROR';
       return null;
     }
 

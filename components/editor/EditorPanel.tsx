@@ -824,23 +824,32 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
             </button>
           )}
 
-          {/* Auto-save toggle */}
-{/*           
+          {/* Auto-save status indicator */}
           {hasContent && (
-            <button
-              onClick={() => setAutoSaveEnabled(!autoSaveEnabled)}
-              className={headerActionButtonClassName}
+            <div
+              className="h-8 flex items-center gap-1.5 px-2.5 rounded-lg text-[11px] whitespace-nowrap"
               style={{
-                background: autoSaveEnabled ? 'var(--success-subtle)' : 'var(--bg-elevated)',
-                color: autoSaveEnabled ? 'var(--success)' : 'var(--text-muted)',
-                border: `1px solid ${autoSaveEnabled ? 'rgba(63, 185, 80, 0.25)' : 'rgba(63, 185, 80, 0.18)'}`,
+                background: hasUnsavedChanges ? 'var(--bg-elevated)' : 'var(--success-subtle)',
+                border: `1px solid ${hasUnsavedChanges ? 'var(--border-subtle)' : 'rgba(63, 185, 80, 0.25)'}`,
               }}
-              title={autoSaveEnabled ? 'Auto-guardado activo' : 'Auto-guardado inactivo'}
+              title={hasUnsavedChanges ? 'Guardando cambios...' : 'Todos los cambios guardados'}
             >
-              {autoSaveEnabled ? <Check className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-              Auto
-            </button>
-          )} */}
+              {hasUnsavedChanges ? (
+                <>
+                  <span
+                    className="w-1.5 h-1.5 rounded-full animate-pulse"
+                    style={{ background: 'var(--warning)' }}
+                  />
+                  <span style={{ color: 'var(--text-muted)' }}>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="h-3 w-3" style={{ color: 'var(--success)' }} />
+                  <span style={{ color: 'var(--success)' }}>Guardado</span>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Wrap / No wrap toggle */}
           {hasContent && (

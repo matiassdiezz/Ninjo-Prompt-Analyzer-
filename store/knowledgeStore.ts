@@ -1105,9 +1105,28 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
 
         const processedIds: string[] = [];
         const failedOperations: { op: PendingOperation; error: string }[] = [];
+        const failedEntityIds = new Set<string>(); // Track failed creates to skip dependents
         const MAX_RETRIES = 3;
 
         for (const op of operations) {
+          // Skip version ops whose agent failed to create (FK would fail)
+          if (op.entity === 'version' && op.type === 'create') {
+            const versionData = op.data as { agentId?: string };
+            if (versionData.agentId && failedEntityIds.has(versionData.agentId)) {
+              failedOperations.push({ op, error: 'Agente no sincronizado aún' });
+              continue;
+            }
+          }
+          // Skip agent ops whose project failed to create
+          if (op.entity === 'agent' && op.type === 'create') {
+            const agentData = op.data as { projectId?: string };
+            if (agentData.projectId && failedEntityIds.has(agentData.projectId)) {
+              failedEntityIds.add(op.entityId); // Also mark agent as failed
+              failedOperations.push({ op, error: 'Proyecto no sincronizado aún' });
+              continue;
+            }
+          }
+
           let success = false;
           let lastError = '';
 
@@ -1145,10 +1164,24 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                 case 'version': {
                   if (op.type === 'create') {
                     const versionData = op.data as PromptVersion & { agentId: string };
+                    // Check if the agent still exists locally; if not, this op is orphaned
+                    const agentExists = get().projects.some(p =>
+                      p.agents.some(a => a.id === versionData.agentId)
+                    );
+                    if (!agentExists) {
+                      console.warn(`Dropping orphaned version op: agent ${versionData.agentId} no longer exists`);
+                      success = true; // Mark as "processed" to remove from queue
+                      break;
+                    }
                     const result = await versionsRepository.createWithId(
                       versionData,
                       versionData.agentId
                     );
+                    if (result === 'FK_ERROR') {
+                      console.warn(`Dropping version op: agent ${versionData.agentId} not in Supabase (FK constraint)`);
+                      success = true; // Remove from queue — will never succeed
+                      break;
+                    }
                     success = !!result;
                   }
                   break;
@@ -1192,6 +1225,10 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
           if (success) {
             processedIds.push(op.id);
           } else {
+            // Track failed creates so dependent ops are skipped
+            if (op.type === 'create') {
+              failedEntityIds.add(op.entityId);
+            }
             failedOperations.push({ op, error: lastError || 'Operación falló después de reintentos' });
           }
         }

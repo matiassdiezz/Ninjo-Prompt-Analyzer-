@@ -23,6 +23,7 @@ import { KeyboardShortcutsModal } from '@/components/ui/KeyboardShortcutsModal';
 import { useSupabaseInit } from '@/lib/supabase/hooks/useSupabaseInit';
 import { useAgentSync } from '@/lib/hooks/useAgentSync';
 import type { KnowledgeEntry, Agent } from '@/types/prompt';
+import { detectPromptMeta } from '@/lib/utils/promptMetaDetector';
 import { WelcomeModal } from '@/components/ui/WelcomeModal';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
@@ -39,6 +40,8 @@ import {
   Loader2,
   LayoutGrid,
   FolderOpen,
+  ClipboardPaste,
+  Zap,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -52,17 +55,19 @@ const CHANNEL_ICONS: Record<string, React.ElementType> = {
 };
 
 export default function Home() {
-  const { error } = useAnalysisStore();
+  const { error, setPrompt } = useAnalysisStore();
 
   const {
     getCurrentProject,
     getCurrentAgent,
     currentProjectId,
     createProject,
+    createAgent,
     setCurrentProject,
     setCurrentAgent,
     sync,
     clearSyncError,
+    projects,
   } = useKnowledgeStore();
 
   const project = getCurrentProject();
@@ -109,6 +114,13 @@ export default function Home() {
   const [agentModalProjectId, setAgentModalProjectId] = useState('');
   const [agentModalEdit, setAgentModalEdit] = useState<Agent | null>(null);
 
+  // Quick-setup modal state (shown when detection is incomplete)
+  const [quickSetup, setQuickSetup] = useState<{
+    promptText: string;
+    name: string;
+    channel: string;
+  } | null>(null);
+
   // Welcome modal state
   const [showWelcome, setShowWelcome] = useState(false);
   useEffect(() => {
@@ -142,6 +154,40 @@ export default function Home() {
     window.addEventListener('switch-view', handleSwitchView as EventListener);
     return () => window.removeEventListener('switch-view', handleSwitchView as EventListener);
   }, []);
+
+  // Quick-paste: create project+agent and load prompt in one step
+  const handleQuickPaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text.trim()) return;
+      const { agentName, channelType } = detectPromptMeta(text);
+
+      if (agentName && channelType) {
+        // Both detected — create silently
+        finishQuickSetup(text, agentName, channelType);
+      } else {
+        // Something missing — ask the user to confirm/complete
+        setQuickSetup({
+          promptText: text,
+          name: agentName || '',
+          channel: channelType || 'instagram',
+        });
+      }
+    } catch {
+      // Clipboard permission denied - fall back to normal creation
+      handleCreateProject();
+    }
+  };
+
+  const finishQuickSetup = (text: string, name: string, channel: string) => {
+    const projectId = createProject(name, '');
+    setCurrentProject(projectId);
+    const agentId = createAgent(projectId, name, channel);
+    setCurrentAgent(projectId, agentId);
+    setTimeout(() => setPrompt(text), 100);
+    setActiveView('workspace');
+    setQuickSetup(null);
+  };
 
   const handleCreateProject = () => {
     setProjectModalOpen(true);
@@ -408,44 +454,84 @@ export default function Home() {
               {/* Empty state when no project selected */}
               {!currentProjectId ? (
                 <div className="h-full flex items-center justify-center animate-fadeIn">
-                  <div className="text-center max-w-sm">
+                  <div className="text-center max-w-md">
                     <div
                       className="mx-auto mb-4 h-14 w-14 rounded-xl flex items-center justify-center"
                       style={{ background: 'var(--accent-glow)' }}
                     >
-                      <FolderOpen className="h-7 w-7" style={{ color: 'var(--accent-primary)' }} />
+                      <Zap className="h-7 w-7" style={{ color: 'var(--accent-primary)' }} />
                     </div>
-                    <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
-                      Selecciona o crea un proyecto para empezar
+                    <h3 className="text-base font-semibold mb-1" style={{ color: 'var(--text-primary)' }}>
+                      Empeza a trabajar tu prompt
                     </h3>
-                    <p className="text-xs mb-5" style={{ color: 'var(--text-muted)' }}>
-                      Usa el sidebar para navegar entre proyectos y agentes
+                    <p className="text-xs mb-6" style={{ color: 'var(--text-muted)' }}>
+                      Pega tu prompt v0 para analizarlo con el asistente de QA
                     </p>
-                    <div className="flex items-center justify-center gap-2">
+
+                    {/* Quick actions */}
+                    <div className="flex items-center justify-center gap-2 mb-6">
                       <button
-                        onClick={() => setActiveView('projects')}
-                        className="flex items-center gap-1.5 px-4 py-2 text-xs rounded-lg transition-colors"
+                        onClick={handleQuickPaste}
+                        className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium rounded-lg transition-all hover:scale-[1.02]"
+                        style={{
+                          background: 'var(--accent-primary)',
+                          color: '#0a0e14',
+                        }}
+                      >
+                        <ClipboardPaste className="h-4 w-4" />
+                        Pegar prompt del clipboard
+                      </button>
+                      <button
+                        onClick={handleCreateProject}
+                        className="flex items-center gap-2 px-5 py-2.5 text-sm rounded-lg transition-colors"
                         style={{
                           background: 'var(--bg-tertiary)',
                           color: 'var(--text-secondary)',
                           border: '1px solid var(--border-subtle)',
                         }}
                       >
-                        <LayoutGrid className="h-3.5 w-3.5" />
-                        Ver proyectos
-                      </button>
-                      <button
-                        onClick={handleCreateProject}
-                        className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium rounded-lg transition-colors"
-                        style={{
-                          background: 'var(--accent-primary)',
-                          color: 'var(--bg-primary)',
-                        }}
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
+                        <FolderOpen className="h-4 w-4" />
                         Nuevo proyecto
                       </button>
                     </div>
+
+                    {/* Recent projects */}
+                    {projects.length > 0 && (
+                      <div>
+                        <p className="text-[11px] font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
+                          PROYECTOS RECIENTES
+                        </p>
+                        <div className="flex flex-col gap-1 max-w-xs mx-auto">
+                          {projects
+                            .sort((a, b) => b.updatedAt - a.updatedAt)
+                            .slice(0, 3)
+                            .map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  setCurrentProject(p.id);
+                                  if (p.agents?.length > 0) {
+                                    setCurrentAgent(p.id, p.currentAgentId || p.agents[0].id);
+                                  }
+                                  setActiveView('workspace');
+                                }}
+                                className="flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors hover:bg-[var(--bg-tertiary)]"
+                                style={{ border: '1px solid var(--border-subtle)' }}
+                              >
+                                <LayoutGrid className="h-3.5 w-3.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+                                <span className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>
+                                  {p.name}
+                                </span>
+                                {p.clientName && (
+                                  <span className="text-[10px] truncate ml-auto" style={{ color: 'var(--text-muted)' }}>
+                                    {p.clientName}
+                                  </span>
+                                )}
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -528,6 +614,111 @@ export default function Home() {
         projectId={agentModalProjectId}
         editAgent={agentModalEdit}
       />
+
+      {/* Quick Setup Modal (when auto-detection is incomplete) */}
+      {quickSetup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0"
+            style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setQuickSetup(null)}
+          />
+          <div
+            className="relative w-full max-w-sm rounded-xl overflow-hidden animate-fadeIn"
+            style={{
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border-default)',
+              boxShadow: 'var(--shadow-lg)',
+            }}
+          >
+            <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                Confirma los datos del agente
+              </h2>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                No pudimos detectar todo del prompt. Completa lo que falta.
+              </p>
+            </div>
+
+            <div className="px-5 py-4 space-y-4">
+              {/* Channel selector */}
+              <div>
+                <label className="text-xs font-medium mb-2 block" style={{ color: 'var(--text-secondary)' }}>
+                  Canal
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {([
+                    { id: 'instagram', label: 'Instagram', Icon: Instagram, color: '#E4405F', bg: 'rgba(228, 64, 95, 0.1)' },
+                    { id: 'whatsapp', label: 'WhatsApp', Icon: MessageCircle, color: '#25D366', bg: 'rgba(37, 211, 102, 0.1)' },
+                    { id: 'tiktok', label: 'TikTok', Icon: Music, color: '#ffffff', bg: 'rgba(255, 255, 255, 0.05)' },
+                    { id: 'web', label: 'Web', Icon: Globe, color: '#58a6ff', bg: 'rgba(88, 166, 255, 0.1)' },
+                  ] as const).map(ch => {
+                    const isSelected = quickSetup.channel === ch.id;
+                    return (
+                      <button
+                        key={ch.id}
+                        onClick={() => setQuickSetup({ ...quickSetup, channel: ch.id })}
+                        className="flex flex-col items-center gap-1.5 p-2.5 rounded-lg transition-all"
+                        style={{
+                          background: isSelected ? ch.bg : 'var(--bg-tertiary)',
+                          border: isSelected ? `1.5px solid ${ch.color}` : '1.5px solid transparent',
+                        }}
+                      >
+                        <ch.Icon className="h-4 w-4" style={{ color: isSelected ? ch.color : 'var(--text-muted)' }} />
+                        <span className="text-[10px]" style={{ color: isSelected ? ch.color : 'var(--text-muted)' }}>
+                          {ch.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Name input */}
+              <div>
+                <label className="text-xs font-medium mb-1.5 block" style={{ color: 'var(--text-secondary)' }}>
+                  Nombre del agente
+                </label>
+                <input
+                  type="text"
+                  value={quickSetup.name}
+                  onChange={e => setQuickSetup({ ...quickSetup, name: e.target.value })}
+                  placeholder="Ej: Luna, Bot de ventas..."
+                  className="w-full px-3 py-2 text-sm rounded-lg"
+                  style={{
+                    background: 'var(--bg-tertiary)',
+                    border: '1px solid var(--border-subtle)',
+                    color: 'var(--text-primary)',
+                  }}
+                  autoFocus
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && quickSetup.name.trim()) {
+                      finishQuickSetup(quickSetup.promptText, quickSetup.name.trim(), quickSetup.channel);
+                    }
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 px-5 py-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
+              <button
+                onClick={() => setQuickSetup(null)}
+                className="px-4 py-2 text-sm rounded-lg transition-colors"
+                style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => finishQuickSetup(quickSetup.promptText, quickSetup.name.trim() || 'Nuevo Agente', quickSetup.channel)}
+                className="px-4 py-2 text-sm font-medium rounded-lg transition-colors"
+                style={{ background: 'var(--accent-primary)', color: 'var(--bg-primary)' }}
+              >
+                Crear
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Welcome Modal */}
       <WelcomeModal
