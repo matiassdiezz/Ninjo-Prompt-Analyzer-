@@ -11,16 +11,17 @@ import { detectTextFlows } from '@/lib/utils/textFlowDetector';
 import { flowDataToText } from '@/lib/utils/flowToText';
 import { findTextInPrompt } from '@/lib/utils/textMatcher';
 import { useToastStore } from '@/store/toastStore';
-import type { FlowSourceOrigin, FlowTextFormat } from '@/types/flow';
+import { migrateAgentToFlows } from '@/lib/migrations/migrateToFlows';
+import type { FlowSourceOrigin, FlowTextFormat, NamedFlow } from '@/types/flow';
 
 /**
- * Hook that synchronizes the flow store with agent.flowData.
+ * Hook that synchronizes the flow store with agent.flows[] (multi-flow).
  *
- * - Flow data is persisted in agent.flowData (NOT in the prompt text)
- * - On agent switch: loads flowData from agent, with fallback to <flow> tag / text flows / ASCII detection
- * - Auto-saves flow changes to agent.flowData (debounced)
- * - Provides insertAsciiInPrompt() to manually insert readable ASCII art into the prompt
- * - Provides convertTextFlowToVisual() to extract text flows via LLM
+ * - Flow data is persisted in agent.flows[activeFlowId].flowData
+ * - On agent switch: migrates legacy flowData if needed, populates availableFlows, loads active flow
+ * - On flow switch: saves current, loads target flow
+ * - Auto-saves flow changes to the active NamedFlow (debounced)
+ * - Extraction methods create individual NamedFlows (not merged)
  */
 export function useFlowSync() {
   const { currentPrompt, setPrompt } = useAnalysisStore();
@@ -28,6 +29,7 @@ export function useFlowSync() {
     nodes,
     edges,
     hasUnsavedChanges,
+    activeFlowId: storeActiveFlowId,
     setFlowData,
     markAsSaved,
     getFlowData,
@@ -37,30 +39,55 @@ export function useFlowSync() {
     clearTextFlowDetection,
     setExtractingFlow,
     markAsChanged,
+    setActiveFlowId: setStoreActiveFlowId,
+    setAvailableFlows,
+    setFlowSourceOrigin: setStoreFlowSourceOrigin,
   } = useFlowStore();
 
   const {
     currentProjectId,
     projects,
     updateAgent,
+    addFlow,
+    updateFlow,
+    deleteFlow: deleteFlowFromStore,
+    setActiveFlowId: setAgentActiveFlowId,
   } = useKnowledgeStore();
 
-  // Derive current agent ID
+  // Derive current agent
   const currentProject = projects.find(p => p.id === currentProjectId);
   const currentAgentId = currentProject?.currentAgentId || null;
+  const currentAgent = currentProject?.agents.find(a => a.id === currentAgentId) || null;
 
   // Refs
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevAgentKeyRef = useRef<string | null>(null);
+  const prevFlowIdRef = useRef<string | null>(null);
   const isLoadingRef = useRef(false);
 
+  // --- Helper: sync availableFlows from agent.flows to flowStore ---
+  const syncAvailableFlows = useCallback((agent: { flows?: NamedFlow[] }) => {
+    const flows = agent.flows || [];
+    setAvailableFlows(flows.map(f => ({ id: f.id, name: f.name })));
+  }, [setAvailableFlows]);
+
+  // --- Helper: load a specific flow into the canvas ---
+  const loadFlowIntoCanvas = useCallback((flow: NamedFlow | undefined) => {
+    if (flow && flow.flowData && flow.flowData.nodes.length > 0) {
+      setFlowData(flow.flowData);
+      setStoreFlowSourceOrigin(flow.sourceOrigin || null);
+    } else {
+      setFlowData({ nodes: [], edges: [] });
+      setStoreFlowSourceOrigin(null);
+    }
+  }, [setFlowData, setStoreFlowSourceOrigin]);
+
   /**
-   * Load flow data when agent changes.
-   * Priority:
-   * 1. agent.flowData (if has nodes)
-   * 2. <flow> JSON tag in prompt (migration fallback)
-   * 3. Text flow detection (show banner, no auto-convert)
-   * 4. ASCII art detection (show banner)
+   * Load flows when agent changes.
+   * 1. Run migration if needed (legacy flowData -> flows[])
+   * 2. Populate availableFlows
+   * 3. Load activeFlowId data into canvas
+   * 4. If no flows: fallback to text/ASCII detection
    */
   useEffect(() => {
     const agentKey = currentProjectId && currentAgentId
@@ -70,17 +97,12 @@ export function useFlowSync() {
     // Skip if same agent
     if (agentKey === prevAgentKeyRef.current) return;
     prevAgentKeyRef.current = agentKey;
+    prevFlowIdRef.current = null; // Reset flow tracking on agent switch
 
-    if (!agentKey || !currentProject) {
+    if (!agentKey || !currentProject || !currentAgent) {
       setFlowData({ nodes: [], edges: [] });
-      clearAsciiDetection();
-      clearTextFlowDetection();
-      return;
-    }
-
-    const agent = currentProject.agents.find(a => a.id === currentAgentId);
-    if (!agent) {
-      setFlowData({ nodes: [], edges: [] });
+      setAvailableFlows([]);
+      setStoreActiveFlowId(null);
       clearAsciiDetection();
       clearTextFlowDetection();
       return;
@@ -88,61 +110,140 @@ export function useFlowSync() {
 
     isLoadingRef.current = true;
 
-    // Priority 1: agent.flowData
-    if (agent.flowData && agent.flowData.nodes && agent.flowData.nodes.length > 0) {
-      setFlowData(agent.flowData);
-      useFlowStore.getState().setFlowSourceOrigin(agent.flowSourceOrigin || null);
+    // Step 1: Migrate if needed (will be no-op if already migrated)
+    let agent = currentAgent;
+    const migrated = migrateAgentToFlows(agent);
+    if (migrated !== agent) {
+      // Save migration result
+      updateAgent(currentProjectId!, currentAgentId!, {
+        flows: migrated.flows,
+        activeFlowId: migrated.activeFlowId,
+      });
+      agent = migrated;
+    }
+
+    const flows = agent.flows || [];
+
+    // Step 2: If agent has flows, load them
+    if (flows.length > 0) {
+      syncAvailableFlows(agent);
+
+      // Determine active flow
+      const activeId = agent.activeFlowId || flows[0].id;
+      const activeFlow = flows.find(f => f.id === activeId) || flows[0];
+
+      setStoreActiveFlowId(activeFlow.id);
+      prevFlowIdRef.current = activeFlow.id;
+      loadFlowIntoCanvas(activeFlow);
       clearAsciiDetection();
       clearTextFlowDetection();
       isLoadingRef.current = false;
       return;
     }
 
-    // Priority 2: <flow> JSON tag in prompt (migration)
+    // Step 3: No flows — check legacy <flow> tag in prompt
     const flowFromPrompt = parseFlowFromPrompt(agent.currentPrompt);
     if (flowFromPrompt && flowFromPrompt.nodes.length > 0) {
+      // Create a NamedFlow from legacy <flow> tag
+      const flowId = addFlow(currentProjectId!, currentAgentId!, 'Flujo Principal');
+      updateFlow(currentProjectId!, currentAgentId!, flowId, {
+        flowData: flowFromPrompt,
+      });
+
       setFlowData(flowFromPrompt);
+      setStoreActiveFlowId(flowId);
+      setAvailableFlows([{ id: flowId, name: 'Flujo Principal' }]);
       clearAsciiDetection();
       clearTextFlowDetection();
-      // Migrate: save to agent.flowData so next time it loads from there
-      updateAgent(currentProjectId!, currentAgentId!, { flowData: flowFromPrompt });
       isLoadingRef.current = false;
       return;
     }
 
-    // Priority 3: Text flow detection
+    // Step 4: Text flow detection (show banner, user decides)
     const textFlows = detectTextFlows(agent.currentPrompt);
     if (textFlows.length > 0) {
       setTextFlowsDetected(textFlows);
       clearAsciiDetection();
       setFlowData({ nodes: [], edges: [] });
+      setAvailableFlows([]);
+      setStoreActiveFlowId(null);
       isLoadingRef.current = false;
       return;
     }
 
-    // Priority 4: ASCII art detection
+    // Step 5: ASCII art detection (show banner)
     const asciiDetection = detectAsciiFlow(agent.currentPrompt);
     if (asciiDetection && asciiDetection.confidence > 0.5) {
       setAsciiDetected(true, asciiDetection.rawBlock);
       clearTextFlowDetection();
-      setFlowData({ nodes: [], edges: [] });
     } else {
       setAsciiDetected(false);
       clearTextFlowDetection();
-      setFlowData({ nodes: [], edges: [] });
     }
 
+    setFlowData({ nodes: [], edges: [] });
+    setAvailableFlows([]);
+    setStoreActiveFlowId(null);
     isLoadingRef.current = false;
-  }, [currentProjectId, currentAgentId, currentProject, setFlowData, clearAsciiDetection, setAsciiDetected, updateAgent, setTextFlowsDetected, clearTextFlowDetection]);
+  }, [currentProjectId, currentAgentId, currentProject, currentAgent, setFlowData, clearAsciiDetection, setAsciiDetected, updateAgent, setTextFlowsDetected, clearTextFlowDetection, syncAvailableFlows, loadFlowIntoCanvas, setStoreActiveFlowId, setAvailableFlows, addFlow, updateFlow, setStoreFlowSourceOrigin]);
 
   /**
-   * Auto-save flow changes to agent.flowData (debounced 500ms).
-   * Does NOT touch the prompt text.
+   * Handle flow tab switch: when storeActiveFlowId changes (from FlowTabBar click),
+   * save current flow and load the new one.
+   */
+  useEffect(() => {
+    if (isLoadingRef.current) return;
+    if (!currentAgent || !currentProjectId || !currentAgentId) return;
+
+    const newFlowId = storeActiveFlowId;
+    const prevFlowId = prevFlowIdRef.current;
+
+    // Skip if same flow or no change
+    if (newFlowId === prevFlowId) return;
+
+    const flows = currentAgent.flows || [];
+    if (flows.length === 0) {
+      prevFlowIdRef.current = null;
+      return;
+    }
+
+    isLoadingRef.current = true;
+
+    // Save current flow if it has unsaved changes
+    if (prevFlowId && hasUnsavedChanges) {
+      const flowData = getFlowData();
+      const { flowSourceOrigin } = useFlowStore.getState();
+      updateFlow(currentProjectId, currentAgentId, prevFlowId, {
+        flowData,
+        sourceOrigin: flowSourceOrigin || undefined,
+      });
+      markAsSaved();
+    }
+
+    // Update agent's activeFlowId
+    if (newFlowId) {
+      setAgentActiveFlowId(currentProjectId, currentAgentId, newFlowId);
+    }
+
+    // Load target flow
+    const targetFlow = newFlowId ? flows.find(f => f.id === newFlowId) : flows[0];
+    loadFlowIntoCanvas(targetFlow);
+
+    prevFlowIdRef.current = newFlowId;
+    isLoadingRef.current = false;
+  }, [storeActiveFlowId, currentAgent, currentProjectId, currentAgentId, hasUnsavedChanges, getFlowData, updateFlow, markAsSaved, loadFlowIntoCanvas, setAgentActiveFlowId]);
+
+  /**
+   * Auto-save flow changes to agent.flows[activeFlowId].flowData (debounced 500ms).
+   * Writes to the specific NamedFlow, not agent.flowData.
    */
   useEffect(() => {
     if (isLoadingRef.current) return;
     if (!hasUnsavedChanges) return;
     if (!currentProjectId || !currentAgentId) return;
+
+    const activeId = storeActiveFlowId;
+    if (!activeId) return;
 
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -150,7 +251,11 @@ export function useFlowSync() {
 
     saveTimerRef.current = setTimeout(() => {
       const flowData = getFlowData();
-      updateAgent(currentProjectId, currentAgentId, { flowData });
+      const { flowSourceOrigin } = useFlowStore.getState();
+      updateFlow(currentProjectId, currentAgentId, activeId, {
+        flowData,
+        sourceOrigin: flowSourceOrigin || undefined,
+      });
       markAsSaved();
     }, 500);
 
@@ -159,11 +264,11 @@ export function useFlowSync() {
         clearTimeout(saveTimerRef.current);
       }
     };
-  }, [nodes, edges, hasUnsavedChanges, currentProjectId, currentAgentId, getFlowData, updateAgent, markAsSaved]);
+  }, [nodes, edges, hasUnsavedChanges, currentProjectId, currentAgentId, storeActiveFlowId, getFlowData, updateFlow, markAsSaved]);
 
   /**
    * Convert detected ASCII art to visual flow.
-   * Parses ASCII, loads into flow store, saves to agent.flowData.
+   * Creates a new NamedFlow from the parsed ASCII.
    */
   const convertAsciiToFlow = useCallback(() => {
     const bounds = getAsciiFlowBounds(currentPrompt);
@@ -172,23 +277,30 @@ export function useFlowSync() {
     const flowData = parseAsciiFlow(bounds.block);
     if (!flowData || flowData.nodes.length === 0) return;
 
-    setFlowData(flowData);
-    clearAsciiDetection();
-
-    // Save to agent.flowData
     if (currentProjectId && currentAgentId) {
-      updateAgent(currentProjectId, currentAgentId, { flowData });
+      const flowId = addFlow(currentProjectId, currentAgentId, 'Flujo ASCII');
+      updateFlow(currentProjectId, currentAgentId, flowId, { flowData });
+
+      setFlowData(flowData);
+      setStoreActiveFlowId(flowId);
+      clearAsciiDetection();
+
+      // Refresh available flows
+      const agent = useKnowledgeStore.getState().projects
+        .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+      if (agent) syncAvailableFlows(agent);
     }
-  }, [currentPrompt, setFlowData, clearAsciiDetection, currentProjectId, currentAgentId, updateAgent]);
+  }, [currentPrompt, setFlowData, clearAsciiDetection, currentProjectId, currentAgentId, addFlow, updateFlow, setStoreActiveFlowId, syncAvailableFlows]);
 
   /**
-   * Convert a detected text flow to visual flow via LLM extraction.
-   * Calls /api/flow/extract, loads result into flow store, saves to agent.flowData.
+   * Convert a single detected text flow to visual flow via LLM extraction.
+   * Creates a new NamedFlow and switches to it.
    */
   const convertTextFlowToVisual = useCallback(async (flowIndex: number) => {
     const { detectedTextFlows } = useFlowStore.getState();
     const flow = detectedTextFlows[flowIndex];
     if (!flow) return;
+    if (!currentProjectId || !currentAgentId) return;
 
     setExtractingFlow(true);
 
@@ -211,22 +323,30 @@ export function useFlowSync() {
       const data = await response.json();
 
       if (data.flow && data.flow.nodes && data.flow.nodes.length > 0) {
-        setFlowData(data.flow);
-        markAsChanged();
-        clearTextFlowDetection();
-
-        // Save origin for roundtrip reinsertion
         const origin: FlowSourceOrigin = {
           rawText: flow.rawText,
           name: flow.name,
           headerAnchor: flow.rawText.split('\n')[0].trim(),
         };
-        useFlowStore.getState().setFlowSourceOrigin(origin);
 
-        // Save to agent.flowData + flowSourceOrigin
-        if (currentProjectId && currentAgentId) {
-          updateAgent(currentProjectId, currentAgentId, { flowData: data.flow, flowSourceOrigin: origin });
-        }
+        // Create NamedFlow
+        const flowId = addFlow(currentProjectId, currentAgentId, flow.name);
+        updateFlow(currentProjectId, currentAgentId, flowId, {
+          flowData: data.flow,
+          sourceOrigin: origin,
+        });
+
+        // Load into canvas
+        setFlowData(data.flow);
+        setStoreActiveFlowId(flowId);
+        setStoreFlowSourceOrigin(origin);
+        markAsChanged();
+        clearTextFlowDetection();
+
+        // Refresh available flows
+        const agent = useKnowledgeStore.getState().projects
+          .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+        if (agent) syncAvailableFlows(agent);
 
         useToastStore.getState().addToast(
           `Flujo "${flow.name}" extraido con ${data.flow.nodes.length} nodos`,
@@ -240,23 +360,25 @@ export function useFlowSync() {
       useToastStore.getState().addToast(message, 'error');
       setExtractingFlow(false);
     }
-  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, updateAgent]);
+  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, addFlow, updateFlow, setStoreActiveFlowId, setStoreFlowSourceOrigin, syncAvailableFlows]);
 
   /**
-   * Convert ALL detected text flows to visual flow via LLM extraction.
-   * Calls /api/flow/extract sequentially for each flow, combines results with Y offset.
+   * Convert ALL detected text flows to separate NamedFlows via LLM extraction.
+   * Each detected flow becomes its own NamedFlow (tab). Auto-connects cross-flow refs.
    */
   const convertAllTextFlows = useCallback(async () => {
     const { detectedTextFlows } = useFlowStore.getState();
     if (detectedTextFlows.length < 2) return;
+    if (!currentProjectId || !currentAgentId) return;
 
     setExtractingFlow(true);
 
-    const allNodes: typeof nodes = [];
-    const allEdges: typeof edges = [];
     let totalNodes = 0;
     let successCount = 0;
-    const Y_OFFSET = 500;
+    let firstFlowId: string | null = null;
+
+    // Track created flows for cross-ref post-processing
+    const createdFlows: { id: string; name: string; flowData: typeof nodes extends (infer T)[] ? { nodes: T[]; edges: any[] } : never }[] = [];
 
     try {
       for (let i = 0; i < detectedTextFlows.length; i++) {
@@ -278,54 +400,49 @@ export function useFlowSync() {
           const data = await response.json();
 
           if (data.flow && data.flow.nodes && data.flow.nodes.length > 0) {
-            const yOffset = i * Y_OFFSET;
+            const origin: FlowSourceOrigin = {
+              rawText: flow.rawText,
+              name: flow.name,
+              headerAnchor: flow.rawText.split('\n')[0].trim(),
+            };
 
-            // Offset nodes and give unique IDs to avoid collisions
-            const prefix = `flow${i}_`;
-            const offsetNodes = data.flow.nodes.map((node: typeof nodes[0]) => ({
-              ...node,
-              id: `${prefix}${node.id}`,
-              position: {
-                x: node.position.x,
-                y: node.position.y + yOffset,
-              },
-            }));
+            // Create individual NamedFlow
+            const flowId = addFlow(currentProjectId, currentAgentId, flow.name);
+            updateFlow(currentProjectId, currentAgentId, flowId, {
+              flowData: data.flow,
+              sourceOrigin: origin,
+            });
 
-            const offsetEdges = data.flow.edges.map((edge: typeof edges[0]) => ({
-              ...edge,
-              id: `${prefix}${edge.id}`,
-              source: `${prefix}${edge.source}`,
-              target: `${prefix}${edge.target}`,
-            }));
-
-            allNodes.push(...offsetNodes);
-            allEdges.push(...offsetEdges);
+            createdFlows.push({ id: flowId, name: flow.name, flowData: data.flow });
             totalNodes += data.flow.nodes.length;
             successCount++;
+
+            if (!firstFlowId) firstFlowId = flowId;
           }
         } catch {
           // Skip failed flows, continue with rest
         }
       }
 
-      if (allNodes.length > 0) {
-        const combined = { nodes: allNodes, edges: allEdges };
-        setFlowData(combined);
-        markAsChanged();
-        clearTextFlowDetection();
+      if (successCount > 0) {
+        // Post-process: auto-connect cross-flow references
+        autoConnectCrossFlowRefs(createdFlows);
 
-        // Save origin from first detected flow for roundtrip
-        const firstFlow = detectedTextFlows[0];
-        const origin: FlowSourceOrigin = {
-          rawText: firstFlow.rawText,
-          name: firstFlow.name,
-          headerAnchor: firstFlow.rawText.split('\n')[0].trim(),
-        };
-        useFlowStore.getState().setFlowSourceOrigin(origin);
+        // Refresh available flows
+        const agent = useKnowledgeStore.getState().projects
+          .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+        if (agent) syncAvailableFlows(agent);
 
-        if (currentProjectId && currentAgentId) {
-          updateAgent(currentProjectId, currentAgentId, { flowData: combined, flowSourceOrigin: origin });
+        // Load first created flow into canvas
+        if (firstFlowId) {
+          const firstCreated = createdFlows[0];
+          if (firstCreated) {
+            setFlowData(firstCreated.flowData);
+            setStoreActiveFlowId(firstFlowId);
+          }
         }
+
+        clearTextFlowDetection();
 
         useToastStore.getState().addToast(
           `${successCount} flujos extraidos con ${totalNodes} nodos total`,
@@ -340,7 +457,47 @@ export function useFlowSync() {
     } finally {
       setExtractingFlow(false);
     }
-  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, updateAgent]);
+  }, [currentPrompt, setFlowData, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, addFlow, updateFlow, setStoreActiveFlowId, syncAvailableFlows]);
+
+  /**
+   * Auto-connect cross-flow references after extracting multiple flows.
+   * Matches end node labels like "-> FLUJO_X" against created flow names.
+   */
+  const autoConnectCrossFlowRefs = useCallback((
+    createdFlows: { id: string; name: string; flowData: { nodes: any[]; edges: any[] } }[]
+  ) => {
+    if (!currentProjectId || !currentAgentId) return;
+
+    const nameToId = new Map(createdFlows.map(f => [f.name.toLowerCase(), f.id]));
+
+    for (const flow of createdFlows) {
+      let hasChanges = false;
+      const updatedNodes = flow.flowData.nodes.map((node: any) => {
+        if (node.type !== 'end') return node;
+
+        // Check label for cross-flow pattern: "-> FLOW_NAME" or "→ FLOW_NAME"
+        const label = (node.label || '').trim();
+        const crossRefMatch = label.match(/^(?:->|→|>>|ir a|goto)\s*(.+)$/i);
+        if (!crossRefMatch) return node;
+
+        const targetName = crossRefMatch[1].trim().toLowerCase();
+        const targetFlowId = nameToId.get(targetName);
+        if (!targetFlowId || targetFlowId === flow.id) return node;
+
+        hasChanges = true;
+        return {
+          ...node,
+          data: { ...node.data, crossFlowRef: targetFlowId },
+        };
+      });
+
+      if (hasChanges) {
+        updateFlow(currentProjectId, currentAgentId, flow.id, {
+          flowData: { nodes: updatedNodes, edges: flow.flowData.edges },
+        });
+      }
+    }
+  }, [currentProjectId, currentAgentId, updateFlow]);
 
   /**
    * Insert ASCII art diagram into the prompt (manual action).
@@ -383,7 +540,6 @@ export function useFlowSync() {
     // Strategy 2: Find the header anchor and replace that section
     const headerIndex = prompt.indexOf(origin.headerAnchor);
     if (headerIndex !== -1) {
-      // Find end of section: next markdown header of same or higher level, or EOF
       const headerLevel = (origin.headerAnchor.match(/^#{1,6}/) || ['##'])[0].length;
       const afterHeader = prompt.substring(headerIndex + origin.headerAnchor.length);
       const nextHeaderPattern = new RegExp(`^#{1,${headerLevel}}\\s`, 'm');
@@ -412,18 +568,20 @@ export function useFlowSync() {
   }, []);
 
   /**
-   * Re-insert the flow back into the prompt, replacing the original text block.
-   * Uses the stored FlowSourceOrigin for positioning.
+   * Re-insert the active flow back into the prompt, replacing the original text block.
+   * Uses the active NamedFlow's sourceOrigin for positioning.
    */
   const insertFlowBackInPrompt = useCallback((format: FlowTextFormat) => {
     const flowData = getFlowData();
     if (isFlowEmpty(flowData)) return;
 
+    // Use per-flow sourceOrigin from the active NamedFlow
     const { flowSourceOrigin } = useFlowStore.getState();
     const flowName = flowSourceOrigin?.name || 'FLUJO';
 
-    // Generate text from flow
-    const newFlowText = flowDataToText(flowData, flowName, format);
+    // Generate text from flow (include cross-flow references)
+    const { availableFlows } = useFlowStore.getState();
+    const newFlowText = flowDataToText(flowData, flowName, format, availableFlows);
 
     useAnalysisStore.getState().pushUndo();
 
@@ -432,15 +590,20 @@ export function useFlowSync() {
       const result = replaceFlowInPrompt(currentPrompt, flowSourceOrigin, newFlowText);
       setPrompt(result.prompt);
 
-      // Update origin for future roundtrips
+      // Update origin for future roundtrips (on the NamedFlow)
       const updatedOrigin: FlowSourceOrigin = {
         rawText: newFlowText,
         name: flowSourceOrigin.name,
         headerAnchor: newFlowText.split('\n')[0].trim(),
       };
-      useFlowStore.getState().setFlowSourceOrigin(updatedOrigin);
-      if (currentProjectId && currentAgentId) {
-        updateAgent(currentProjectId, currentAgentId, { flowSourceOrigin: updatedOrigin });
+      setStoreFlowSourceOrigin(updatedOrigin);
+
+      // Persist updated origin to the NamedFlow
+      const activeId = useFlowStore.getState().activeFlowId;
+      if (currentProjectId && currentAgentId && activeId) {
+        updateFlow(currentProjectId, currentAgentId, activeId, {
+          sourceOrigin: updatedOrigin,
+        });
       }
 
       if (result.replacedInPlace) {
@@ -449,21 +612,24 @@ export function useFlowSync() {
         useToastStore.getState().addToast('No se encontro la posicion original. Flujo agregado al final.', 'warning');
       }
     } else {
-      // No origin — just append
-      setPrompt(currentPrompt.trimEnd() + '\n\n' + newFlowText);
-      useToastStore.getState().addToast('Flujo insertado al final del prompt', 'success');
+      // No origin — copy to clipboard so user can paste where they want
+      navigator.clipboard.writeText(newFlowText).then(() => {
+        useToastStore.getState().addToast('Flujo copiado al portapapeles — pegalo donde quieras en el prompt', 'success');
+      }).catch(() => {
+        useToastStore.getState().addToast('No se pudo copiar al portapapeles', 'error');
+      });
     }
-  }, [getFlowData, currentPrompt, setPrompt, replaceFlowInPrompt, currentProjectId, currentAgentId, updateAgent]);
+  }, [getFlowData, currentPrompt, setPrompt, replaceFlowInPrompt, currentProjectId, currentAgentId, updateFlow, setStoreFlowSourceOrigin]);
 
   /**
-   * Extract selected text from the editor as a flow.
-   * Calls /api/flow/extract, saves origin for roundtrip, loads into flow store.
+   * Extract selected text from the editor as a new NamedFlow.
+   * Calls /api/flow/extract, creates a NamedFlow, switches to it.
    */
   const extractSelectionAsFlow = useCallback(async (selectedText: string) => {
     if (!selectedText || selectedText.split('\n').length < 3) return;
+    if (!currentProjectId || !currentAgentId) return;
 
     const firstLine = selectedText.split('\n')[0].trim();
-    // Try to extract a flow name from the header
     const headerMatch = firstLine.match(/^#{1,3}\s+(.+)$/);
     const name = headerMatch ? headerMatch[1].replace(/[:\-–—]\s*$/, '').trim() : 'FLUJO_SELECCIONADO';
 
@@ -494,15 +660,24 @@ export function useFlowSync() {
       const data = await response.json();
 
       if (data.flow && data.flow.nodes && data.flow.nodes.length > 0) {
+        // Create NamedFlow
+        const flowId = addFlow(currentProjectId, currentAgentId, name);
+        updateFlow(currentProjectId, currentAgentId, flowId, {
+          flowData: data.flow,
+          sourceOrigin: origin,
+        });
+
+        // Load into canvas
         setFlowData(data.flow);
+        setStoreActiveFlowId(flowId);
+        setStoreFlowSourceOrigin(origin);
         markAsChanged();
         clearTextFlowDetection();
 
-        useFlowStore.getState().setFlowSourceOrigin(origin);
-
-        if (currentProjectId && currentAgentId) {
-          updateAgent(currentProjectId, currentAgentId, { flowData: data.flow, flowSourceOrigin: origin });
-        }
+        // Refresh available flows
+        const agent = useKnowledgeStore.getState().projects
+          .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+        if (agent) syncAvailableFlows(agent);
 
         useToastStore.getState().addToast(
           `Flujo "${name}" extraido con ${data.flow.nodes.length} nodos`,
@@ -517,7 +692,7 @@ export function useFlowSync() {
     } finally {
       setExtractingFlow(false);
     }
-  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, updateAgent]);
+  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, addFlow, updateFlow, setStoreActiveFlowId, setStoreFlowSourceOrigin, syncAvailableFlows]);
 
   return {
     convertAsciiToFlow,

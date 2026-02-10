@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { KnowledgeEntry, SuggestionDecision, Project, PromptVersion, Agent } from '@/types/prompt';
 import { migrateProjectsToAgents } from '@/lib/migrations/migrateToAgents';
+import { migrateProjectsToFlows } from '@/lib/migrations/migrateToFlows';
+import type { NamedFlow } from '@/types/flow';
 import {
   type ExportData,
   type MergeOptions,
@@ -84,6 +86,13 @@ interface KnowledgeStore {
   deleteAgent: (projectId: string, agentId: string) => void;
   setCurrentAgent: (projectId: string, agentId: string | null) => void;
   getCurrentAgent: () => Agent | null;
+
+  // Actions - Flows (per agent)
+  addFlow: (projectId: string, agentId: string, name: string) => string;
+  updateFlow: (projectId: string, agentId: string, flowId: string, updates: Partial<NamedFlow>) => void;
+  deleteFlow: (projectId: string, agentId: string, flowId: string) => void;
+  renameFlow: (projectId: string, agentId: string, flowId: string, newName: string) => void;
+  setActiveFlowId: (projectId: string, agentId: string, flowId: string | null) => void;
 
   // Actions - Search
   searchEntries: (query: string, tags?: string[]) => KnowledgeEntry[];
@@ -526,6 +535,159 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         const project = projects.find(p => p.id === currentProjectId);
         if (!project) return null;
         return project.agents.find(a => a.id === project.currentAgentId) || null;
+      },
+
+      // Flow CRUD (per agent)
+      addFlow: (projectId, agentId, name) => {
+        const flowId = crypto.randomUUID();
+        const now = Date.now();
+        const newFlow: NamedFlow = {
+          id: flowId,
+          name,
+          flowData: { nodes: [], edges: [] },
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: p.agents.map(a => {
+                if (a.id !== agentId) return a;
+                return {
+                  ...a,
+                  flows: [...(a.flows || []), newFlow],
+                  activeFlowId: flowId,
+                  updatedAt: now,
+                };
+              }),
+              updatedAt: now,
+            };
+          }),
+        }));
+
+        // Sync: get updated agent flows after state change
+        const agent = get().projects.find(p => p.id === projectId)?.agents.find(a => a.id === agentId);
+        if (agent) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              pendingOperations: [
+                ...state.sync.pendingOperations,
+                createPendingOperation('update', 'agent', agentId, {
+                  flows: agent.flows,
+                  activeFlowId: agent.activeFlowId,
+                }),
+              ],
+            },
+          }));
+          get().syncToSupabase();
+        }
+
+        return flowId;
+      },
+
+      updateFlow: (projectId, agentId, flowId, updates) => {
+        const now = Date.now();
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: p.agents.map(a => {
+                if (a.id !== agentId) return a;
+                return {
+                  ...a,
+                  flows: (a.flows || []).map(f =>
+                    f.id === flowId ? { ...f, ...updates, updatedAt: now } : f
+                  ),
+                  updatedAt: now,
+                };
+              }),
+              updatedAt: now,
+            };
+          }),
+        }));
+
+        // Sync: get updated agent flows after state change
+        const agent = get().projects.find(p => p.id === projectId)?.agents.find(a => a.id === agentId);
+        if (agent) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              pendingOperations: [
+                ...state.sync.pendingOperations,
+                createPendingOperation('update', 'agent', agentId, { flows: agent.flows }),
+              ],
+            },
+          }));
+          get().syncToSupabase();
+        }
+      },
+
+      deleteFlow: (projectId, agentId, flowId) => {
+        const now = Date.now();
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: p.agents.map(a => {
+                if (a.id !== agentId) return a;
+                const filtered = (a.flows || []).filter(f => f.id !== flowId);
+                const newActiveId = a.activeFlowId === flowId
+                  ? (filtered.length > 0 ? filtered[0].id : null)
+                  : a.activeFlowId;
+                return {
+                  ...a,
+                  flows: filtered,
+                  activeFlowId: newActiveId,
+                  updatedAt: now,
+                };
+              }),
+              updatedAt: now,
+            };
+          }),
+        }));
+
+        // Sync: get updated agent flows after state change
+        const agent = get().projects.find(p => p.id === projectId)?.agents.find(a => a.id === agentId);
+        if (agent) {
+          set((state) => ({
+            sync: {
+              ...state.sync,
+              pendingOperations: [
+                ...state.sync.pendingOperations,
+                createPendingOperation('update', 'agent', agentId, {
+                  flows: agent.flows,
+                  activeFlowId: agent.activeFlowId,
+                }),
+              ],
+            },
+          }));
+          get().syncToSupabase();
+        }
+      },
+
+      renameFlow: (projectId, agentId, flowId, newName) => {
+        get().updateFlow(projectId, agentId, flowId, { name: newName });
+      },
+
+      setActiveFlowId: (projectId, agentId, flowId) => {
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              agents: p.agents.map(a => {
+                if (a.id !== agentId) return a;
+                return { ...a, activeFlowId: flowId };
+              }),
+            };
+          }),
+        }));
       },
 
       // Search
@@ -1086,6 +1248,9 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         if (needsMigration) {
           state.projects = migrateProjectsToAgents(state.projects);
         }
+
+        // Migrate agents from single flowData to multi-flow (flows[])
+        state.projects = migrateProjectsToFlows(state.projects);
 
         // Schema v3 migration: clear stale pending ops and queue full re-sync
         const SCHEMA_VERSION = 3;

@@ -15,8 +15,8 @@ export function ThemeToggle() {
         background: 'var(--bg-tertiary)',
         border: '1px solid var(--border-subtle)',
         position: 'relative',
-        width: '40px',
-        height: '40px',
+        width: '32px',
+        height: '32px',
       }}
       title={isDark ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
       aria-label="Toggle theme"

@@ -11,6 +11,7 @@ import { AnnotationPopover } from './AnnotationPopover';
 import { AnnotationMarkers, AnnotationsSidebar } from './AnnotationMarkers';
 import { ContextualSuggestions } from './ContextualSuggestions';
 import { ApplyLearningModal } from './ApplyLearningModal';
+import { NinjoChatPanel } from '../chat/NinjoChatPanel';
 import type { PromptAnnotation } from '@/types/prompt';
 import type { KnowledgeEntry } from '@/types/prompt';
 import { useToastStore } from '@/store/toastStore';
@@ -109,7 +110,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const [isPasting, setIsPasting] = useState(false);
   
   // Contextual suggestions state
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [sidePanel, setSidePanel] = useState<'suggestions' | 'chat' | null>('suggestions');
   const [applyLearningModal, setApplyLearningModal] = useState<{
     learning: KnowledgeEntry;
     section: SemanticSection;
@@ -741,7 +742,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           )}
 
           {/* Version info */}
-          {hasContent && (
+          {/* {hasContent && (
             <div
               className="h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs whitespace-nowrap"
               style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
@@ -755,7 +756,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                 />
               )}
             </div>
-          )}
+          )} */}
 
           {/* Undo/Redo buttons */}
           {hasContent && (
@@ -854,24 +855,39 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               title={isWrapEnabled ? 'Wrap activo' : 'Wrap inactivo'}
             >
               <span className="font-semibold">Wrap</span>
-              <span style={{ opacity: 0.9 }}>{isWrapEnabled ? 'On' : 'Off'}</span>
             </button>
           )}
 
           {/* Suggestions toggle */}
           {hasContent && selectedSection && (
             <button
-              onClick={() => setShowSuggestions(!showSuggestions)}
+              onClick={() => setSidePanel(sidePanel === 'suggestions' ? null : 'suggestions')}
               className={headerActionButtonClassName}
               style={{
-                background: showSuggestions ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                color: showSuggestions ? 'var(--accent-primary)' : 'var(--text-muted)',
-                border: `1px solid ${showSuggestions ? 'var(--border-accent)' : 'rgba(88, 166, 255, 0.18)'}`,
+                background: sidePanel === 'suggestions' ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+                color: sidePanel === 'suggestions' ? 'var(--accent-primary)' : 'var(--text-muted)',
+                border: `1px solid ${sidePanel === 'suggestions' ? 'var(--border-accent)' : 'rgba(88, 166, 255, 0.18)'}`,
               }}
               title="Sugerencias contextuales"
             >
-              <Sparkles className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Sugerencias</span>
+            </button>
+          )}
+
+          {/* AI Chat toggle - only in fullscreen */}
+          {hasContent && isFullscreenEditor && (
+            <button
+              onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')}
+              className={headerActionButtonClassName}
+              style={{
+                background: sidePanel === 'chat' ? 'var(--info-subtle)' : 'var(--bg-elevated)',
+                color: sidePanel === 'chat' ? 'var(--info)' : 'var(--text-muted)',
+                border: `1px solid ${sidePanel === 'chat' ? 'rgba(88, 166, 255, 0.28)' : 'rgba(88, 166, 255, 0.18)'}`,
+              }}
+              title="Asistente AI"
+            >
+              <MessageSquare className="h-3 w-3" />
+              <span className="hidden sm:inline">AI Chat</span>
             </button>
           )}
 
@@ -1267,7 +1283,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           </div>
 
           {/* Contextual Suggestions Panel */}
-          {hasContent && showSuggestions && selectedSection && (
+          {hasContent && sidePanel === 'suggestions' && selectedSection && (
             <div
               className="w-80 border-l flex-shrink-0 overflow-hidden"
               style={{ borderColor: 'var(--border-subtle)' }}
@@ -1275,8 +1291,18 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               <ContextualSuggestions
                 currentSection={selectedSection}
                 onApplyLearning={handleApplyLearning}
-                onClose={() => setShowSuggestions(false)}
+                onClose={() => setSidePanel(null)}
               />
+            </div>
+          )}
+
+          {/* AI Chat Panel - only in fullscreen mode */}
+          {hasContent && isFullscreenEditor && sidePanel === 'chat' && (
+            <div
+              className="w-[400px] border-l flex-shrink-0 overflow-hidden"
+              style={{ borderColor: 'var(--border-subtle)' }}
+            >
+              <NinjoChatPanel />
             </div>
           )}
         </div>

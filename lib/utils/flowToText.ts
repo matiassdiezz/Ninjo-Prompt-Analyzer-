@@ -6,12 +6,13 @@ import type { FlowData, FlowNode, FlowEdge, FlowTextFormat } from '@/types/flow'
 export function flowDataToText(
   flowData: FlowData,
   flowName: string,
-  format: FlowTextFormat
+  format: FlowTextFormat,
+  availableFlows?: { id: string; name: string }[]
 ): string {
   if (format === 'mermaid') {
-    return flowDataToMermaid(flowData, flowName);
+    return flowDataToMermaid(flowData, flowName, availableFlows);
   }
-  return flowDataToStructuredText(flowData, flowName);
+  return flowDataToStructuredText(flowData, flowName, availableFlows);
 }
 
 /**
@@ -24,7 +25,11 @@ export function flowDataToText(
  *      - Si → Paso 4
  *      - No → Paso 6
  */
-export function flowDataToStructuredText(flowData: FlowData, flowName: string): string {
+export function flowDataToStructuredText(
+  flowData: FlowData,
+  flowName: string,
+  availableFlows?: { id: string; name: string }[]
+): string {
   const { nodes, edges } = flowData;
   if (nodes.length === 0) return '';
 
@@ -56,6 +61,14 @@ export function flowDataToStructuredText(flowData: FlowData, flowName: string): 
         }
       }
     }
+
+    // For end nodes with cross-flow reference, show target flow name
+    if (node.type === 'end' && node.data?.crossFlowRef && availableFlows) {
+      const targetFlow = availableFlows.find(f => f.id === node.data!.crossFlowRef);
+      if (targetFlow) {
+        lines.push(`   → Continua en: ${targetFlow.name}`);
+      }
+    }
   }
 
   return lines.join('\n');
@@ -72,7 +85,11 @@ export function flowDataToStructuredText(flowData: FlowData, flowName: string): 
  *       ...
  *   ```
  */
-export function flowDataToMermaid(flowData: FlowData, flowName: string): string {
+export function flowDataToMermaid(
+  flowData: FlowData,
+  flowName: string,
+  availableFlows?: { id: string; name: string }[]
+): string {
   const { nodes, edges } = flowData;
   if (nodes.length === 0) return '';
 
@@ -86,7 +103,19 @@ export function flowDataToMermaid(flowData: FlowData, flowName: string): string 
     const mid = idMap.get(node.id)!;
     const label = escapeMermaidLabel(node.label);
     const desc = getNodeDescription(node);
-    const fullLabel = desc ? `${label}: ${escapeMermaidLabel(desc)}` : label;
+
+    // For end nodes with cross-flow ref, append target flow name
+    let crossFlowSuffix = '';
+    if (node.type === 'end' && node.data?.crossFlowRef && availableFlows) {
+      const targetFlow = availableFlows.find(f => f.id === node.data!.crossFlowRef);
+      if (targetFlow) {
+        crossFlowSuffix = `\\n→ ${escapeMermaidLabel(targetFlow.name)}`;
+      }
+    }
+
+    const fullLabel = desc
+      ? `${label}: ${escapeMermaidLabel(desc)}${crossFlowSuffix}`
+      : `${label}${crossFlowSuffix}`;
 
     if (node.type === 'decision') {
       lines.push(`    ${mid}{"${fullLabel}"}`);

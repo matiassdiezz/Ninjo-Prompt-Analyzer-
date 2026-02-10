@@ -7,6 +7,7 @@ import { useToastStore } from '@/store/toastStore';
 
 import { FlowchartCanvas } from './FlowchartCanvas';
 import { FlowToolbar } from './FlowToolbar';
+import { FlowTabBar } from './FlowTabBar';
 import { NodePropertiesPanel } from './NodePropertiesPanel';
 import { EdgePropertiesPanel } from './EdgePropertiesPanel';
 import { FlowValidationPanel } from './FlowValidationPanel';
@@ -14,6 +15,7 @@ import { FlowGenerateModal } from './FlowGenerateModal';
 import { FlowTemplatesModal } from './FlowTemplatesModal';
 import { FlowToPromptModal } from './FlowToPromptModal';
 import { useFlowStore } from '@/store/flowStore';
+import { useKnowledgeStore } from '@/store/knowledgeStore';
 import { useFlowSync } from '@/lib/hooks/useFlowSync';
 import { validateFlow } from '@/lib/utils/flowValidator';
 import { generateAsciiFlow } from '@/lib/utils/asciiFlowGenerator';
@@ -62,7 +64,24 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
     deleteEdge,
   } = useFlowStore();
 
-  // Initialize sync with agent.flowData (includes ASCII + text flow detection)
+  // Multi-flow state from flowStore
+  const availableFlows = useFlowStore((s) => s.availableFlows);
+  const storeActiveFlowId = useFlowStore((s) => s.activeFlowId);
+  const setStoreActiveFlowId = useFlowStore((s) => s.setActiveFlowId);
+
+  // Knowledge store for flow CRUD
+  const {
+    currentProjectId,
+    projects,
+    addFlow: addFlowToAgent,
+    renameFlow: renameFlowInAgent,
+    deleteFlow: deleteFlowFromAgent,
+    updateFlow: updateFlowInAgent,
+  } = useKnowledgeStore();
+  const currentProject = projects.find(p => p.id === currentProjectId);
+  const currentAgentId = currentProject?.currentAgentId || null;
+
+  // Initialize sync with agent.flows (includes ASCII + text flow detection)
   const { convertAsciiToFlow, insertAsciiInPrompt, convertTextFlowToVisual, convertAllTextFlows, insertFlowBackInPrompt } = useFlowSync();
 
   // Source origin for roundtrip reinsertion
@@ -109,9 +128,36 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
   // Handlers
   const handleAddNode = useCallback(
     (type: FlowNodeType) => {
-      addNode(type);
+      const flowContainer = document.querySelector('.react-flow');
+      if (flowContainer) {
+        const rect = flowContainer.getBoundingClientRect();
+        const centerPosition = reactFlowInstance.screenToFlowPosition({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
+
+        // Offset if another node is already at this position
+        const currentNodes = useFlowStore.getState().nodes;
+        const SNAP = 50;
+        let ox = 0;
+        let oy = 0;
+        while (
+          currentNodes.some(
+            (n) =>
+              Math.abs(n.position.x - (centerPosition.x + ox)) < SNAP &&
+              Math.abs(n.position.y - (centerPosition.y + oy)) < SNAP
+          )
+        ) {
+          ox += 30;
+          oy += 30;
+        }
+
+        addNode(type, { x: centerPosition.x + ox, y: centerPosition.y + oy });
+      } else {
+        addNode(type);
+      }
     },
-    [addNode]
+    [addNode, reactFlowInstance]
   );
 
   const handleNodesChange = useCallback(
@@ -173,9 +219,18 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
   }, [reactFlowInstance]);
 
   const handleCreateInitialFlow = useCallback(() => {
+    if (!storeActiveFlowId && currentProjectId && currentAgentId) {
+      const flowId = addFlowToAgent(currentProjectId, currentAgentId, 'Flujo Principal');
+      setStoreActiveFlowId(flowId);
+      const agent = useKnowledgeStore.getState().projects
+        .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+      if (agent?.flows) {
+        useFlowStore.getState().setAvailableFlows(agent.flows.map(f => ({ id: f.id, name: f.name })));
+      }
+    }
     const initialFlow = createInitialFlow();
     setFlowData(initialFlow);
-  }, [setFlowData]);
+  }, [setFlowData, storeActiveFlowId, currentProjectId, currentAgentId, addFlowToAgent, setStoreActiveFlowId]);
 
   const handleUpdateNode = useCallback(
     (id: string, updates: Partial<FlowNode>) => {
@@ -204,13 +259,22 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
     [selectNode, nodes, reactFlowInstance]
   );
 
-  // Apply generated flow
+  // Apply generated flow — if no active flow, create a new NamedFlow first
   const handleApplyGeneratedFlow = useCallback(
     (flow: FlowData) => {
+      if (!storeActiveFlowId && currentProjectId && currentAgentId) {
+        const flowId = addFlowToAgent(currentProjectId, currentAgentId, 'Flujo Generado');
+        setStoreActiveFlowId(flowId);
+        const agent = useKnowledgeStore.getState().projects
+          .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+        if (agent?.flows) {
+          useFlowStore.getState().setAvailableFlows(agent.flows.map(f => ({ id: f.id, name: f.name })));
+        }
+      }
       setFlowData(flow);
       markAsChanged();
     },
-    [setFlowData, markAsChanged]
+    [setFlowData, markAsChanged, storeActiveFlowId, currentProjectId, currentAgentId, addFlowToAgent, setStoreActiveFlowId]
   );
 
   // Export ASCII
@@ -242,47 +306,75 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
     addToast('Flujo organizado', 'success');
   }, [pushFlowHistory, nodes, edges, setFlowData, markAsChanged, reactFlowInstance, addToast]);
 
+  // --- Flow Tab Bar handlers ---
+  const handleSelectFlow = useCallback((flowId: string) => {
+    setStoreActiveFlowId(flowId);
+  }, [setStoreActiveFlowId]);
+
+  const handleAddFlow = useCallback(() => {
+    if (!currentProjectId || !currentAgentId) return;
+    const flowId = addFlowToAgent(currentProjectId, currentAgentId, 'Nuevo Flujo');
+    setStoreActiveFlowId(flowId);
+    setFlowData({ nodes: [], edges: [] });
+    // Refresh available flows
+    const agent = useKnowledgeStore.getState().projects
+      .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+    if (agent?.flows) {
+      useFlowStore.getState().setAvailableFlows(agent.flows.map(f => ({ id: f.id, name: f.name })));
+    }
+  }, [currentProjectId, currentAgentId, addFlowToAgent, setStoreActiveFlowId, setFlowData]);
+
+  const handleRenameFlow = useCallback((flowId: string, newName: string) => {
+    if (!currentProjectId || !currentAgentId) return;
+    renameFlowInAgent(currentProjectId, currentAgentId, flowId, newName);
+    // Refresh available flows
+    const agent = useKnowledgeStore.getState().projects
+      .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+    if (agent?.flows) {
+      useFlowStore.getState().setAvailableFlows(agent.flows.map(f => ({ id: f.id, name: f.name })));
+    }
+  }, [currentProjectId, currentAgentId, renameFlowInAgent]);
+
+  const handleDeleteFlow = useCallback((flowId: string) => {
+    if (!currentProjectId || !currentAgentId) return;
+    deleteFlowFromAgent(currentProjectId, currentAgentId, flowId);
+    // Refresh available flows + switch to new active
+    const agent = useKnowledgeStore.getState().projects
+      .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+    if (agent?.flows) {
+      useFlowStore.getState().setAvailableFlows(agent.flows.map(f => ({ id: f.id, name: f.name })));
+      if (agent.activeFlowId) {
+        setStoreActiveFlowId(agent.activeFlowId);
+      }
+    }
+    addToast('Flujo eliminado', 'success');
+  }, [currentProjectId, currentAgentId, deleteFlowFromAgent, setStoreActiveFlowId, addToast]);
+
+  const handleDuplicateFlow = useCallback((flowId: string) => {
+    if (!currentProjectId || !currentAgentId) return;
+    const agent = currentProject?.agents.find(a => a.id === currentAgentId);
+    const sourceFlow = agent?.flows?.find(f => f.id === flowId);
+    if (!sourceFlow) return;
+
+    const newFlowId = addFlowToAgent(currentProjectId, currentAgentId, `${sourceFlow.name} (copia)`);
+    updateFlowInAgent(currentProjectId, currentAgentId, newFlowId, {
+      flowData: { nodes: [...sourceFlow.flowData.nodes], edges: [...sourceFlow.flowData.edges] },
+      sourceOrigin: sourceFlow.sourceOrigin,
+    });
+    setStoreActiveFlowId(newFlowId);
+
+    // Refresh available flows
+    const updatedAgent = useKnowledgeStore.getState().projects
+      .find(p => p.id === currentProjectId)?.agents.find(a => a.id === currentAgentId);
+    if (updatedAgent?.flows) {
+      useFlowStore.getState().setAvailableFlows(updatedAgent.flows.map(f => ({ id: f.id, name: f.name })));
+    }
+    addToast('Flujo duplicado', 'success');
+  }, [currentProjectId, currentAgentId, currentProject, addFlowToAgent, updateFlowInAgent, setStoreActiveFlowId, addToast]);
+
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      {/* ASCII Detection Banner */}
-      {detectedAsciiFlow && (
-        <div
-          className="flex items-center gap-3 px-4 py-2.5 border-b"
-          style={{
-            background: 'rgba(56, 139, 253, 0.1)',
-            borderColor: 'rgba(56, 139, 253, 0.3)',
-          }}
-        >
-          <FileText className="h-4 w-4 shrink-0" style={{ color: '#388bfd' }} />
-          <span
-            className="text-sm flex-1"
-            style={{ color: 'var(--text-primary)' }}
-          >
-            Se detecto un diagrama ASCII en el prompt
-          </span>
-          <button
-            onClick={convertAsciiToFlow}
-            className="px-3 py-1 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: 'var(--accent-primary)',
-              color: 'var(--bg-primary)',
-            }}
-          >
-            Convertir a flujo visual
-          </button>
-          <button
-            onClick={clearAsciiDetection}
-            className="px-3 py-1 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-secondary)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            Ignorar
-          </button>
-        </div>
-      )}
+      {/* ASCII Detection Banner — hidden for now */}
 
       {/* Text Flow Detection Banner */}
       {detectedTextFlows.length > 0 && (
@@ -410,6 +502,19 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
         hasSourceOrigin={!!flowSourceOrigin}
       />
 
+      {/* Flow Tab Bar (shown when there are flows) */}
+      {availableFlows.length > 0 && (
+        <FlowTabBar
+          flows={availableFlows}
+          activeFlowId={storeActiveFlowId}
+          onSelectFlow={handleSelectFlow}
+          onAddFlow={handleAddFlow}
+          onRenameFlow={handleRenameFlow}
+          onDeleteFlow={handleDeleteFlow}
+          onDuplicateFlow={handleDuplicateFlow}
+        />
+      )}
+
       {/* Main content */}
       <div className="flex-1 flex min-h-0">
         {/* Validation Panel (left) */}
@@ -484,6 +589,9 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
             onUpdateNode={handleUpdateNode}
             onDeleteNode={deleteNode}
             onClose={handleClosePropertiesPanel}
+            availableFlows={availableFlows}
+            activeFlowId={storeActiveFlowId}
+            onNavigateToFlow={handleSelectFlow}
           />
         )}
       </div>

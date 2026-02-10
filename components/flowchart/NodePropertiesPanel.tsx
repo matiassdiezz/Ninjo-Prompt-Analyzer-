@@ -8,6 +8,8 @@ import {
   MessageSquare,
   HelpCircle,
   Trash2,
+  ExternalLink,
+  Navigation,
 } from 'lucide-react';
 import type { FlowNode, FlowNodeType } from '@/types/flow';
 
@@ -16,6 +18,9 @@ interface NodePropertiesPanelProps {
   onUpdateNode: (id: string, updates: Partial<FlowNode>) => void;
   onDeleteNode: (id: string) => void;
   onClose: () => void;
+  availableFlows?: { id: string; name: string }[];
+  activeFlowId?: string | null;
+  onNavigateToFlow?: (flowId: string) => void;
 }
 
 const nodeTypeInfo: Record<FlowNodeType, { icon: typeof Play; label: string; color: string }> = {
@@ -30,6 +35,9 @@ export function NodePropertiesPanel({
   onUpdateNode,
   onDeleteNode,
   onClose,
+  availableFlows = [],
+  activeFlowId,
+  onNavigateToFlow,
 }: NodePropertiesPanelProps) {
   const [label, setLabel] = useState(node?.label || '');
   const [description, setDescription] = useState(node?.data?.description || '');
@@ -71,6 +79,11 @@ export function NodePropertiesPanel({
 
   const typeInfo = nodeTypeInfo[node.type];
   const Icon = typeInfo.icon;
+  const isCrossFlow = !!node.data?.crossFlowRef;
+  const isEndNode = node.type === 'end';
+
+  // Other flows available for cross-flow reference (exclude current)
+  const otherFlows = availableFlows.filter(f => f.id !== activeFlowId);
 
   const handleLabelChange = (newLabel: string) => {
     setLabel(newLabel);
@@ -102,9 +115,36 @@ export function NodePropertiesPanel({
     });
   };
 
-  const canEditLabel = node.type !== 'start';
+  const handleToggleCrossFlow = (enabled: boolean) => {
+    if (enabled) {
+      // Set to first available flow by default
+      const targetId = otherFlows.length > 0 ? otherFlows[0].id : undefined;
+      onUpdateNode(node.id, {
+        data: { ...node.data, crossFlowRef: targetId },
+      });
+    } else {
+      // Remove cross-flow reference
+      const { crossFlowRef: _, ...restData } = node.data || {};
+      onUpdateNode(node.id, {
+        data: { ...restData, crossFlowRef: undefined },
+      });
+    }
+  };
+
+  const handleCrossFlowTargetChange = (targetFlowId: string) => {
+    onUpdateNode(node.id, {
+      data: { ...node.data, crossFlowRef: targetFlowId },
+    });
+  };
+
+  const canEditLabel = true;
   const canHaveDescription = node.type === 'action' || node.type === 'decision';
   const canHaveExtras = node.type === 'action' || node.type === 'decision';
+
+  // Resolve target flow name
+  const targetFlowName = isCrossFlow
+    ? availableFlows.find(f => f.id === node.data?.crossFlowRef)?.name
+    : null;
 
   return (
     <div
@@ -120,12 +160,16 @@ export function NodePropertiesPanel({
         style={{ borderColor: 'var(--border-subtle)' }}
       >
         <div className="flex items-center gap-2">
-          <Icon className="h-4 w-4" style={{ color: typeInfo.color }} />
+          {isCrossFlow ? (
+            <ExternalLink className="h-4 w-4" style={{ color: '#a855f7' }} />
+          ) : (
+            <Icon className="h-4 w-4" style={{ color: typeInfo.color }} />
+          )}
           <span
             className="text-sm font-medium"
             style={{ color: 'var(--text-primary)' }}
           >
-            {typeInfo.label}
+            {isCrossFlow ? 'Ir a otro flujo' : typeInfo.label}
           </span>
         </div>
         <button
@@ -190,6 +234,86 @@ export function NodePropertiesPanel({
             />
           )}
         </div>
+
+        {/* Cross-Flow Reference (only for end nodes when there are other flows) */}
+        {isEndNode && otherFlows.length > 0 && (
+          <div
+            className="rounded-lg p-3 space-y-3"
+            style={{
+              background: isCrossFlow ? 'rgba(168, 85, 247, 0.08)' : 'var(--bg-tertiary)',
+              border: `1px solid ${isCrossFlow ? 'rgba(168, 85, 247, 0.3)' : 'var(--border-subtle)'}`,
+            }}
+          >
+            {/* Toggle */}
+            <div className="flex items-center justify-between">
+              <label
+                className="text-xs font-medium"
+                style={{ color: isCrossFlow ? '#a855f7' : 'var(--text-secondary)' }}
+              >
+                {isCrossFlow ? 'Ir a otro flujo' : 'Fin normal'}
+              </label>
+              <button
+                onClick={() => handleToggleCrossFlow(!isCrossFlow)}
+                className="relative w-9 h-5 rounded-full transition-colors"
+                style={{
+                  background: isCrossFlow ? '#a855f7' : 'var(--bg-primary)',
+                  border: `1px solid ${isCrossFlow ? '#a855f7' : 'var(--border-default)'}`,
+                }}
+              >
+                <div
+                  className="absolute top-0.5 w-3.5 h-3.5 rounded-full transition-transform"
+                  style={{
+                    background: isCrossFlow ? 'white' : 'var(--text-muted)',
+                    transform: isCrossFlow ? 'translateX(18px)' : 'translateX(2px)',
+                  }}
+                />
+              </button>
+            </div>
+
+            {/* Dropdown - select target flow */}
+            {isCrossFlow && (
+              <>
+                <div>
+                  <label
+                    className="block text-[10px] font-medium mb-1"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    Flujo destino
+                  </label>
+                  <select
+                    value={node.data?.crossFlowRef || ''}
+                    onChange={(e) => handleCrossFlowTargetChange(e.target.value)}
+                    className="w-full input text-xs"
+                    style={{
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    {otherFlows.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Navigate button */}
+                {targetFlowName && onNavigateToFlow && (
+                  <button
+                    onClick={() => onNavigateToFlow(node.data!.crossFlowRef!)}
+                    className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg text-xs font-medium transition-all"
+                    style={{
+                      background: 'rgba(168, 85, 247, 0.15)',
+                      color: '#a855f7',
+                      border: '1px solid rgba(168, 85, 247, 0.3)',
+                    }}
+                  >
+                    <Navigation className="h-3.5 w-3.5" />
+                    <span>Navegar a {targetFlowName}</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Description (for action and decision nodes) */}
         {canHaveDescription && (

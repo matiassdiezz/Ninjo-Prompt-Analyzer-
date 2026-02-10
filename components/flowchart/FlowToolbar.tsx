@@ -12,7 +12,6 @@ import {
   Shield,
   Sparkles,
   FileText,
-  FileInput,
   LayoutTemplate,
   Wand2,
   Undo2,
@@ -24,6 +23,7 @@ import {
   RefreshCcw,
   Type,
   Code,
+  ClipboardCopy,
 } from 'lucide-react';
 import type { FlowNodeType, FlowTextFormat } from '@/types/flow';
 
@@ -350,28 +350,15 @@ export function FlowToolbar({
         />
         <DropdownDivider />
         <DropdownItem
-          icon={FileText}
-          label="Copiar como ASCII"
-          onClick={onExportAscii}
-          disabled={!hasNodes}
-        />
-        <DropdownItem
-          icon={FileInput}
-          label="Insertar en prompt (ASCII)"
-          onClick={onInsertInPrompt}
-          disabled={!hasNodes}
-        />
-        <DropdownDivider />
-        <DropdownItem
-          icon={hasSourceOrigin ? RefreshCcw : Type}
-          label={hasSourceOrigin ? 'Reinsertar como texto' : 'Insertar como texto'}
+          icon={hasSourceOrigin ? RefreshCcw : ClipboardCopy}
+          label={hasSourceOrigin ? 'Reinsertar como texto' : 'Copiar como texto'}
           onClick={() => onReinsertFlowInPrompt('structured')}
           disabled={!hasNodes}
           color="var(--accent-primary)"
         />
         <DropdownItem
-          icon={hasSourceOrigin ? RefreshCcw : Code}
-          label={hasSourceOrigin ? 'Reinsertar como Mermaid' : 'Insertar como Mermaid'}
+          icon={hasSourceOrigin ? RefreshCcw : ClipboardCopy}
+          label={hasSourceOrigin ? 'Reinsertar como Mermaid' : 'Copiar como Mermaid'}
           onClick={() => onReinsertFlowInPrompt('mermaid')}
           disabled={!hasNodes}
           color="var(--accent-primary)"

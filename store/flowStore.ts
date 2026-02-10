@@ -38,6 +38,10 @@ interface FlowStore {
   // Source origin (for roundtrip reinsertion)
   flowSourceOrigin: FlowSourceOrigin | null;
 
+  // Multi-flow state
+  activeFlowId: string | null;
+  availableFlows: { id: string; name: string }[];
+
   // Actions - Data management
   setFlowData: (data: FlowData) => void;
   getFlowData: () => FlowData;
@@ -85,6 +89,10 @@ interface FlowStore {
 
   // Actions - Source origin
   setFlowSourceOrigin: (origin: FlowSourceOrigin | null) => void;
+
+  // Actions - Multi-flow
+  setActiveFlowId: (id: string | null) => void;
+  setAvailableFlows: (flows: { id: string; name: string }[]) => void;
 }
 
 // Generate unique IDs
@@ -124,6 +132,8 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   selectedEdgeId: null,
   isGeneratingFlow: false,
   flowSourceOrigin: null,
+  activeFlowId: null,
+  availableFlows: [],
 
   // --- Undo/Redo ---
   pushFlowHistory: () => {
@@ -416,5 +426,21 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   // Source origin actions
   setFlowSourceOrigin: (origin: FlowSourceOrigin | null) => {
     set({ flowSourceOrigin: origin });
+  },
+
+  // Multi-flow actions
+  setActiveFlowId: (id: string | null) => {
+    set({
+      activeFlowId: id,
+      // Clear undo/redo when switching flows
+      flowHistory: [],
+      flowFuture: [],
+      canUndoFlow: false,
+      canRedoFlow: false,
+    });
+  },
+
+  setAvailableFlows: (flows: { id: string; name: string }[]) => {
+    set({ availableFlows: flows });
   },
 }));

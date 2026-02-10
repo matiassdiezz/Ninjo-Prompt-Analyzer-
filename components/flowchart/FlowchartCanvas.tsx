@@ -41,7 +41,16 @@ interface FlowchartCanvasProps {
 }
 
 // Convert our FlowNode to React Flow node format
-function toReactFlowNode(node: FlowNode, isSelected: boolean): Node {
+function toReactFlowNode(
+  node: FlowNode,
+  isSelected: boolean,
+  availableFlows: { id: string; name: string }[]
+): Node {
+  const crossFlowRef = node.data?.crossFlowRef;
+  const crossFlowName = crossFlowRef
+    ? availableFlows.find((f) => f.id === crossFlowRef)?.name
+    : undefined;
+
   return {
     id: node.id,
     type: node.type,
@@ -53,6 +62,8 @@ function toReactFlowNode(node: FlowNode, isSelected: boolean): Node {
       action: node.data?.action,
       instructions: node.data?.instructions,
       keywords: node.data?.keywords,
+      crossFlowRef,
+      crossFlowName,
       isSelected,
     },
     selected: isSelected,
@@ -125,11 +136,12 @@ export function FlowchartCanvas({
   onDeleteSelected,
 }: FlowchartCanvasProps) {
   const { undoFlow, redoFlow, commitNodePositions } = useFlowStore();
+  const availableFlows = useFlowStore((s) => s.availableFlows);
 
   // Convert to React Flow format
   const rfNodes = useMemo(
-    () => nodes.map((n) => toReactFlowNode(n, n.id === selectedNodeId)),
-    [nodes, selectedNodeId]
+    () => nodes.map((n) => toReactFlowNode(n, n.id === selectedNodeId, availableFlows)),
+    [nodes, selectedNodeId, availableFlows]
   );
 
   const rfEdges = useMemo(
@@ -203,21 +215,19 @@ export function FlowchartCanvas({
       );
 
       if (positionChanges.length > 0) {
-        setLocalNodes((currentNodes) => {
-          const updatedNodes = currentNodes.map((n) => {
-            const posChange = positionChanges.find(
-              (c) => c.type === 'position' && c.id === n.id
-            );
-            if (posChange && posChange.type === 'position' && 'position' in posChange && posChange.position) {
-              return { ...n, position: posChange.position };
-            }
-            return n;
-          });
-
-          // Propagate to parent
-          onNodesChange(updatedNodes.map(fromReactFlowNode));
-          return updatedNodes;
+        // Compute updated nodes from localNodes + position changes
+        // (onLocalNodesChange above already updated local state)
+        const updatedRfNodes = localNodes.map((n) => {
+          const posChange = positionChanges.find(
+            (c) => c.type === 'position' && c.id === n.id
+          );
+          if (posChange && posChange.type === 'position' && 'position' in posChange && posChange.position) {
+            return { ...n, position: posChange.position };
+          }
+          return n;
         });
+        // Propagate to parent OUTSIDE any state setter
+        onNodesChange(updatedRfNodes.map(fromReactFlowNode));
       }
 
       // Check for selection changes
@@ -238,7 +248,7 @@ export function FlowchartCanvas({
         }
       }
     },
-    [onLocalNodesChange, setLocalNodes, onNodesChange, onNodeSelect]
+    [onLocalNodesChange, localNodes, onNodesChange, onNodeSelect]
   );
 
   // Handle edge changes
@@ -246,20 +256,18 @@ export function FlowchartCanvas({
     (changes: Parameters<typeof onLocalEdgesChange>[0]) => {
       onLocalEdgesChange(changes);
 
-      setLocalEdges((currentEdges) => {
-        let updatedEdges = [...currentEdges];
-
-        changes.forEach((change) => {
-          if (change.type === 'remove') {
-            updatedEdges = updatedEdges.filter((e) => e.id !== change.id);
-          }
-        });
-
+      // Check if there are meaningful changes to propagate (removes)
+      const hasRemovals = changes.some((c) => c.type === 'remove');
+      if (hasRemovals) {
+        const removeIds = new Set(
+          changes.filter((c) => c.type === 'remove').map((c) => c.id)
+        );
+        const updatedEdges = localEdges.filter((e) => !removeIds.has(e.id));
+        // Propagate to parent OUTSIDE any state setter
         onEdgesChange(updatedEdges.map(fromReactFlowEdge));
-        return updatedEdges;
-      });
+      }
     },
-    [onLocalEdgesChange, setLocalEdges, onEdgesChange]
+    [onLocalEdgesChange, localEdges, onEdgesChange]
   );
 
   // Handle new connections
@@ -280,11 +288,13 @@ export function FlowchartCanvas({
         },
       };
 
+      let updatedEdgesResult: Edge[] = [];
       setLocalEdges((eds) => {
-        const updated = addEdge(newEdge, eds);
-        onEdgesChange(updated.map(fromReactFlowEdge));
-        return updated;
+        updatedEdgesResult = addEdge(newEdge, eds);
+        return updatedEdgesResult;
       });
+      // Propagate to parent OUTSIDE the state setter
+      onEdgesChange(updatedEdgesResult.map(fromReactFlowEdge));
     },
     [setLocalEdges, onEdgesChange]
   );
@@ -308,8 +318,9 @@ export function FlowchartCanvas({
     (oldEdge: Edge, newConnection: Connection) => {
       if (!newConnection.source || !newConnection.target) return;
 
+      let updatedEdgesResult: Edge[] = [];
       setLocalEdges((eds) => {
-        const updated = eds.map((e) =>
+        updatedEdgesResult = eds.map((e) =>
           e.id === oldEdge.id
             ? {
                 ...e,
@@ -319,9 +330,10 @@ export function FlowchartCanvas({
               }
             : e
         );
-        onEdgesChange(updated.map(fromReactFlowEdge));
-        return updated;
+        return updatedEdgesResult;
       });
+      // Propagate to parent OUTSIDE the state setter
+      onEdgesChange(updatedEdgesResult.map(fromReactFlowEdge));
     },
     [setLocalEdges, onEdgesChange]
   );

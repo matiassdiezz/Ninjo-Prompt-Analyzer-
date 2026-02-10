@@ -20,6 +20,7 @@ export interface FlowNode {
     action?: string; // For action nodes
     instructions?: string; // Agent instructions for this step
     keywords?: string[]; // Keywords/triggers that activate this node
+    crossFlowRef?: string; // Target flow ID for cross-flow end nodes ("go to flow X")
   };
 }
 
@@ -46,6 +47,16 @@ export interface FlowSourceOrigin {
   headerAnchor: string;   // First line of the header, used as fallback search anchor
 }
 
+// Named flow: a single flow within an agent's flow collection
+export interface NamedFlow {
+  id: string;
+  name: string;                        // "FLUJO_VENTAS"
+  flowData: FlowData;                  // nodes + edges
+  sourceOrigin?: FlowSourceOrigin;     // For roundtrip reinsertion
+  createdAt: number;
+  updatedAt: number;
+}
+
 // Output format for flow-to-text conversion
 export type FlowTextFormat = 'structured' | 'mermaid';
 
@@ -57,6 +68,8 @@ export interface ReactFlowNodeData {
   action?: string;
   instructions?: string;
   keywords?: string[];
+  crossFlowRef?: string;
+  crossFlowName?: string;
   onLabelChange?: (label: string) => void;
   onDelete?: () => void;
   isSelected?: boolean;

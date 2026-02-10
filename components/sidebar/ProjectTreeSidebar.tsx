@@ -192,7 +192,7 @@ export function ProjectTreeSidebar({
       }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
+      <div className="flex items-center justify-between px-4 py-4 " style={{ borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-center gap-2">
           <div className="h-7 w-7 relative flex-shrink-0">
             <Image src="/images/LogoNazare.png" alt="Ninjo" width={28} height={28} />

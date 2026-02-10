@@ -1,4 +1,4 @@
-import type { FlowData, FlowSourceOrigin } from '@/types/flow';
+import type { FlowData, FlowSourceOrigin, NamedFlow } from '@/types/flow';
 
 // Chat message for QA conversations
 export interface ChatMessage {
@@ -46,8 +46,10 @@ export interface Agent {
   versions: PromptVersion[];
   annotations: PromptAnnotation[];
   chatMessages: ChatMessage[];
-  flowData?: FlowData;
-  flowSourceOrigin?: FlowSourceOrigin;
+  flowData?: FlowData;                    // Legacy: single flow (kept for migration)
+  flowSourceOrigin?: FlowSourceOrigin;    // Legacy: single origin (kept for migration)
+  flows?: NamedFlow[];                    // Multi-flow: array of named flows
+  activeFlowId?: string | null;           // Multi-flow: currently viewed flow
   createdAt: number;
   updatedAt: number;
 }
