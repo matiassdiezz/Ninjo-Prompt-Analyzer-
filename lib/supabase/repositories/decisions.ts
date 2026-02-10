@@ -63,10 +63,7 @@ export const decisionsRepository = {
   async createWithId(decision: SuggestionDecision, deviceId: string): Promise<SuggestionDecision | null> {
     if (!supabase) return null;
 
-    const dbDecision = {
-      id: decision.id,
-      ...mapAppDecisionToDbInsert(decision, deviceId),
-    };
+    const dbDecision = mapAppDecisionToDbInsert(decision, deviceId);
 
     const { data, error } = await supabase
       .from('suggestion_decisions')

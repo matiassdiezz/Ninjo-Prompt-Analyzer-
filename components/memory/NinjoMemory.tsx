@@ -3,8 +3,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
 import type { KnowledgeEntry, KnowledgeCategory } from '@/types/prompt';
-import { LearningComments } from './LearningComments';
-import { VotingButtons } from './VotingButtons';
 import { ImportKnowledge } from './ImportKnowledge';
 import { KNOWLEDGE_CATEGORIES, inferCategoryFromTags, getCategoryKeys } from '@/lib/utils/categories';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -77,7 +75,6 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
   const [effectivenessFilter, setEffectivenessFilter] = useState<EffectivenessFilter>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [commentCounts, setCommentCounts] = useState<Map<string, number>>(new Map());
   const [showImport, setShowImport] = useState(false);
 
   // View mode and category filter
@@ -735,12 +732,6 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                                       </div>
                                     </div>
                                   )}
-                                  <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                                    <VotingButtons learningId={entry.id} />
-                                  </div>
-                                  <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                                    <LearningComments learningId={entry.id} onCommentAdded={() => {}} />
-                                  </div>
                                   <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
                                     <button
                                       onClick={(e) => { e.stopPropagation(); handleCopy(`${entry.title}\n\n${entry.description}`); }}
@@ -982,30 +973,6 @@ export function NinjoMemory({ onClose }: NinjoMemoryProps) {
                           )}
                         </div>
 
-                        {/* Voting */}
-                        <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                          <label className="text-[10px] uppercase tracking-wider font-medium mb-2 block" style={{ color: 'var(--text-muted)' }}>
-                            ¿Qué tan útil es este aprendizaje?
-                          </label>
-                          <VotingButtons learningId={entry.id} />
-                        </div>
-
-                        {/* Comments */}
-                        <div className="pt-3 border-t" style={{ borderColor: 'var(--border-subtle)' }}>
-                          <label className="text-[10px] uppercase tracking-wider font-medium mb-2 block" style={{ color: 'var(--text-muted)' }}>
-                            Comentarios del equipo
-                          </label>
-                          <LearningComments 
-                            learningId={entry.id}
-                            onCommentAdded={() => {
-                              setCommentCounts(prev => {
-                                const newMap = new Map(prev);
-                                newMap.set(entry.id, (newMap.get(entry.id) || 0) + 1);
-                                return newMap;
-                              });
-                            }}
-                          />
-                        </div>
 
                         {/* Actions */}
                         <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-subtle)' }}>

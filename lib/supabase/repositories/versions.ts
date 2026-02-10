@@ -3,13 +3,13 @@ import type { PromptVersion } from '@/types/prompt';
 import { mapAppVersionToDbInsert, mapDbVersionToApp, type DbPromptVersion } from '../types';
 
 export const versionsRepository = {
-  async getByProjectId(projectId: string): Promise<PromptVersion[]> {
+  async getByAgentId(agentId: string): Promise<PromptVersion[]> {
     if (!supabase) return [];
 
     const { data, error } = await supabase
       .from('prompt_versions')
       .select('*')
-      .eq('project_id', projectId)
+      .eq('agent_id', agentId)
       .order('created_at', { ascending: true });
 
     if (error) {
@@ -20,10 +20,10 @@ export const versionsRepository = {
     return ((data || []) as DbPromptVersion[]).map((v) => mapDbVersionToApp(v));
   },
 
-  async create(version: PromptVersion, projectId: string): Promise<PromptVersion | null> {
+  async create(version: PromptVersion, agentId: string): Promise<PromptVersion | null> {
     if (!supabase) return null;
 
-    const dbVersion = mapAppVersionToDbInsert(version, projectId);
+    const dbVersion = mapAppVersionToDbInsert(version, agentId);
 
     const { data, error } = await supabase
       .from('prompt_versions')
@@ -39,13 +39,10 @@ export const versionsRepository = {
     return mapDbVersionToApp(data as DbPromptVersion);
   },
 
-  async createWithId(version: PromptVersion, projectId: string): Promise<PromptVersion | null> {
+  async createWithId(version: PromptVersion, agentId: string): Promise<PromptVersion | null> {
     if (!supabase) return null;
 
-    const dbVersion = {
-      id: version.id,
-      ...mapAppVersionToDbInsert(version, projectId),
-    };
+    const dbVersion = mapAppVersionToDbInsert(version, agentId);
 
     const { data, error } = await supabase
       .from('prompt_versions')
@@ -78,16 +75,16 @@ export const versionsRepository = {
     return true;
   },
 
-  async deleteByProjectId(projectId: string): Promise<boolean> {
+  async deleteByAgentId(agentId: string): Promise<boolean> {
     if (!supabase) return false;
 
     const { error } = await supabase
       .from('prompt_versions')
       .delete()
-      .eq('project_id', projectId);
+      .eq('agent_id', agentId);
 
     if (error) {
-      console.error('Error deleting versions by project:', error);
+      console.error('Error deleting versions by agent:', error);
       return false;
     }
 

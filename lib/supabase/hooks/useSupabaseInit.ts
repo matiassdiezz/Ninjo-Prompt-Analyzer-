@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { registerDevice, setSupabaseDeviceId } from '../device';
 import { isSupabaseConfigured, supabase } from '../client';
 import { useKnowledgeStore } from '@/store/knowledgeStore';
-import { mapDbKnowledgeEntryToApp } from '../types';
+import { mapDbKnowledgeEntryToApp, mapDbAgentToApp } from '../types';
+import type { DbKnowledgeEntry, DbAgent } from '../types';
 
 export function useSupabaseInit() {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -64,11 +65,12 @@ export function useSupabaseInit() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Set up Realtime subscriptions for collaborative features
-    let realtimeChannel: any = null;
-    
+    // Set up Realtime subscriptions for multi-device sync
+    const channels: ReturnType<NonNullable<typeof supabase>['channel']>[] = [];
+
     if (isSupabaseConfigured() && supabase) {
-      realtimeChannel = supabase
+      // Knowledge entries channel
+      const knowledgeChannel = supabase
         .channel('knowledge-changes')
         .on(
           'postgres_changes',
@@ -79,44 +81,34 @@ export function useSupabaseInit() {
           },
           (payload) => {
             if (!mounted) return;
-            
-            // Handle INSERT: new learning from another device
+
             if (payload.eventType === 'INSERT' && payload.new) {
-              const newEntry = mapDbKnowledgeEntryToApp(payload.new as any);
-              
-              // Add to store if not already present
+              const newEntry = mapDbKnowledgeEntryToApp(payload.new as DbKnowledgeEntry);
               const { entries } = useKnowledgeStore.getState();
               const exists = entries.some(e => e.id === newEntry.id);
-              
+
               if (!exists) {
-                // Show notification
                 if (typeof window !== 'undefined') {
                   const event = new CustomEvent('new-learning', { detail: newEntry });
                   window.dispatchEvent(event);
                 }
-                
-                // Add to store
                 useKnowledgeStore.setState((state) => ({
                   entries: [...state.entries, newEntry],
                 }));
               }
             }
-            
-            // Handle UPDATE: learning modified by another device
+
             if (payload.eventType === 'UPDATE' && payload.new) {
-              const updatedEntry = mapDbKnowledgeEntryToApp(payload.new as any);
-              
+              const updatedEntry = mapDbKnowledgeEntryToApp(payload.new as DbKnowledgeEntry);
               useKnowledgeStore.setState((state) => ({
-                entries: state.entries.map(e => 
+                entries: state.entries.map(e =>
                   e.id === updatedEntry.id ? updatedEntry : e
                 ),
               }));
             }
-            
-            // Handle DELETE: learning deleted by another device
+
             if (payload.eventType === 'DELETE' && payload.old) {
               const deletedId = (payload.old as any).id;
-              
               useKnowledgeStore.setState((state) => ({
                 entries: state.entries.filter(e => e.id !== deletedId),
               }));
@@ -124,17 +116,50 @@ export function useSupabaseInit() {
           }
         )
         .subscribe();
+      channels.push(knowledgeChannel);
+
+      // Agents channel (multi-device prompt sync)
+      const agentsChannel = supabase
+        .channel('agent-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'agents',
+          },
+          (payload) => {
+            if (!mounted) return;
+
+            const dbAgent = payload.new as DbAgent;
+            const updatedAgent = mapDbAgentToApp(dbAgent, []);
+
+            useKnowledgeStore.setState((state) => ({
+              projects: state.projects.map(p => {
+                if (p.id !== dbAgent.project_id) return p;
+                return {
+                  ...p,
+                  agents: p.agents.map(a => {
+                    if (a.id !== updatedAgent.id) return a;
+                    // Preserve local versions (realtime doesn't include them)
+                    return { ...updatedAgent, versions: a.versions };
+                  }),
+                };
+              }),
+            }));
+          }
+        )
+        .subscribe();
+      channels.push(agentsChannel);
     }
 
     return () => {
       mounted = false;
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      
-      // Cleanup Realtime subscription
-      if (realtimeChannel) {
-        realtimeChannel.unsubscribe();
-      }
+
+      // Cleanup Realtime subscriptions
+      channels.forEach(ch => ch.unsubscribe());
     };
   }, [initializeFromSupabase, setOnlineStatus]);
 

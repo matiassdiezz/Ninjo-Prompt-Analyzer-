@@ -21,8 +21,11 @@ import {
   ChevronDown,
   Pencil,
   Download,
+  RefreshCcw,
+  Type,
+  Code,
 } from 'lucide-react';
-import type { FlowNodeType } from '@/types/flow';
+import type { FlowNodeType, FlowTextFormat } from '@/types/flow';
 
 interface FlowToolbarProps {
   onAddNode: (type: FlowNodeType) => void;
@@ -45,6 +48,8 @@ interface FlowToolbarProps {
   canRedo: boolean;
   onClearFlow: () => void;
   onAutoLayout: () => void;
+  onReinsertFlowInPrompt: (format: FlowTextFormat) => void;
+  hasSourceOrigin: boolean;
 }
 
 const nodeButtons: { type: FlowNodeType; icon: typeof Play; label: string; color: string }[] = [
@@ -197,6 +202,8 @@ export function FlowToolbar({
   canRedo,
   onClearFlow,
   onAutoLayout,
+  onReinsertFlowInPrompt,
+  hasSourceOrigin,
 }: FlowToolbarProps) {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -350,8 +357,22 @@ export function FlowToolbar({
         />
         <DropdownItem
           icon={FileInput}
-          label="Insertar en prompt"
+          label="Insertar en prompt (ASCII)"
           onClick={onInsertInPrompt}
+          disabled={!hasNodes}
+        />
+        <DropdownDivider />
+        <DropdownItem
+          icon={hasSourceOrigin ? RefreshCcw : Type}
+          label={hasSourceOrigin ? 'Reinsertar como texto' : 'Insertar como texto'}
+          onClick={() => onReinsertFlowInPrompt('structured')}
+          disabled={!hasNodes}
+          color="var(--accent-primary)"
+        />
+        <DropdownItem
+          icon={hasSourceOrigin ? RefreshCcw : Code}
+          label={hasSourceOrigin ? 'Reinsertar como Mermaid' : 'Insertar como Mermaid'}
+          onClick={() => onReinsertFlowInPrompt('mermaid')}
           disabled={!hasNodes}
           color="var(--accent-primary)"
         />

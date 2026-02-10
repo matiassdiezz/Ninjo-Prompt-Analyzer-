@@ -8,7 +8,10 @@ import { parseFlowFromPrompt } from '@/lib/utils/flowParser';
 import { isFlowEmpty, insertAsciiFlowInPrompt } from '@/lib/utils/flowSerializer';
 import { detectAsciiFlow, parseAsciiFlow, getAsciiFlowBounds } from '@/lib/utils/asciiFlowParser';
 import { detectTextFlows } from '@/lib/utils/textFlowDetector';
+import { flowDataToText } from '@/lib/utils/flowToText';
+import { findTextInPrompt } from '@/lib/utils/textMatcher';
 import { useToastStore } from '@/store/toastStore';
+import type { FlowSourceOrigin, FlowTextFormat } from '@/types/flow';
 
 /**
  * Hook that synchronizes the flow store with agent.flowData.
@@ -88,6 +91,7 @@ export function useFlowSync() {
     // Priority 1: agent.flowData
     if (agent.flowData && agent.flowData.nodes && agent.flowData.nodes.length > 0) {
       setFlowData(agent.flowData);
+      useFlowStore.getState().setFlowSourceOrigin(agent.flowSourceOrigin || null);
       clearAsciiDetection();
       clearTextFlowDetection();
       isLoadingRef.current = false;
@@ -211,9 +215,17 @@ export function useFlowSync() {
         markAsChanged();
         clearTextFlowDetection();
 
-        // Save to agent.flowData
+        // Save origin for roundtrip reinsertion
+        const origin: FlowSourceOrigin = {
+          rawText: flow.rawText,
+          name: flow.name,
+          headerAnchor: flow.rawText.split('\n')[0].trim(),
+        };
+        useFlowStore.getState().setFlowSourceOrigin(origin);
+
+        // Save to agent.flowData + flowSourceOrigin
         if (currentProjectId && currentAgentId) {
-          updateAgent(currentProjectId, currentAgentId, { flowData: data.flow });
+          updateAgent(currentProjectId, currentAgentId, { flowData: data.flow, flowSourceOrigin: origin });
         }
 
         useToastStore.getState().addToast(
@@ -302,8 +314,17 @@ export function useFlowSync() {
         markAsChanged();
         clearTextFlowDetection();
 
+        // Save origin from first detected flow for roundtrip
+        const firstFlow = detectedTextFlows[0];
+        const origin: FlowSourceOrigin = {
+          rawText: firstFlow.rawText,
+          name: firstFlow.name,
+          headerAnchor: firstFlow.rawText.split('\n')[0].trim(),
+        };
+        useFlowStore.getState().setFlowSourceOrigin(origin);
+
         if (currentProjectId && currentAgentId) {
-          updateAgent(currentProjectId, currentAgentId, { flowData: combined });
+          updateAgent(currentProjectId, currentAgentId, { flowData: combined, flowSourceOrigin: origin });
         }
 
         useToastStore.getState().addToast(
@@ -335,5 +356,175 @@ export function useFlowSync() {
     useToastStore.getState().addToast('Flujo insertado en el prompt', 'success');
   }, [getFlowData, currentPrompt, setPrompt]);
 
-  return { convertAsciiToFlow, insertAsciiInPrompt, convertTextFlowToVisual, convertAllTextFlows };
+  /**
+   * Replace the original flow text in the prompt with new text.
+   * Uses fuzzy matching to find the original block even if the prompt was edited.
+   */
+  const replaceFlowInPrompt = useCallback((
+    prompt: string,
+    origin: FlowSourceOrigin,
+    newText: string
+  ): { prompt: string; replacedInPlace: boolean } => {
+    // Strategy 1: Find the original rawText using fuzzy matching
+    const match = findTextInPrompt(prompt, origin.rawText, {
+      enableFuzzy: true,
+      fuzzyThreshold: 0.85,
+    });
+
+    if (match.found && match.confidence >= 0.85) {
+      const before = prompt.substring(0, match.startIndex);
+      const after = prompt.substring(match.endIndex);
+      return {
+        prompt: `${before.trimEnd()}\n\n${newText}\n\n${after.trimStart()}`.trim(),
+        replacedInPlace: true,
+      };
+    }
+
+    // Strategy 2: Find the header anchor and replace that section
+    const headerIndex = prompt.indexOf(origin.headerAnchor);
+    if (headerIndex !== -1) {
+      // Find end of section: next markdown header of same or higher level, or EOF
+      const headerLevel = (origin.headerAnchor.match(/^#{1,6}/) || ['##'])[0].length;
+      const afterHeader = prompt.substring(headerIndex + origin.headerAnchor.length);
+      const nextHeaderPattern = new RegExp(`^#{1,${headerLevel}}\\s`, 'm');
+      const nextHeaderMatch = afterHeader.match(nextHeaderPattern);
+
+      let endIndex: number;
+      if (nextHeaderMatch && nextHeaderMatch.index !== undefined) {
+        endIndex = headerIndex + origin.headerAnchor.length + nextHeaderMatch.index;
+      } else {
+        endIndex = prompt.length;
+      }
+
+      const before = prompt.substring(0, headerIndex);
+      const after = prompt.substring(endIndex);
+      return {
+        prompt: `${before.trimEnd()}\n\n${newText}\n\n${after.trimStart()}`.trim(),
+        replacedInPlace: true,
+      };
+    }
+
+    // Strategy 3: Append at end
+    return {
+      prompt: `${prompt.trimEnd()}\n\n${newText}`,
+      replacedInPlace: false,
+    };
+  }, []);
+
+  /**
+   * Re-insert the flow back into the prompt, replacing the original text block.
+   * Uses the stored FlowSourceOrigin for positioning.
+   */
+  const insertFlowBackInPrompt = useCallback((format: FlowTextFormat) => {
+    const flowData = getFlowData();
+    if (isFlowEmpty(flowData)) return;
+
+    const { flowSourceOrigin } = useFlowStore.getState();
+    const flowName = flowSourceOrigin?.name || 'FLUJO';
+
+    // Generate text from flow
+    const newFlowText = flowDataToText(flowData, flowName, format);
+
+    useAnalysisStore.getState().pushUndo();
+
+    if (flowSourceOrigin) {
+      // Replace in place
+      const result = replaceFlowInPrompt(currentPrompt, flowSourceOrigin, newFlowText);
+      setPrompt(result.prompt);
+
+      // Update origin for future roundtrips
+      const updatedOrigin: FlowSourceOrigin = {
+        rawText: newFlowText,
+        name: flowSourceOrigin.name,
+        headerAnchor: newFlowText.split('\n')[0].trim(),
+      };
+      useFlowStore.getState().setFlowSourceOrigin(updatedOrigin);
+      if (currentProjectId && currentAgentId) {
+        updateAgent(currentProjectId, currentAgentId, { flowSourceOrigin: updatedOrigin });
+      }
+
+      if (result.replacedInPlace) {
+        useToastStore.getState().addToast('Flujo reinsertado en su posicion original', 'success');
+      } else {
+        useToastStore.getState().addToast('No se encontro la posicion original. Flujo agregado al final.', 'warning');
+      }
+    } else {
+      // No origin — just append
+      setPrompt(currentPrompt.trimEnd() + '\n\n' + newFlowText);
+      useToastStore.getState().addToast('Flujo insertado al final del prompt', 'success');
+    }
+  }, [getFlowData, currentPrompt, setPrompt, replaceFlowInPrompt, currentProjectId, currentAgentId, updateAgent]);
+
+  /**
+   * Extract selected text from the editor as a flow.
+   * Calls /api/flow/extract, saves origin for roundtrip, loads into flow store.
+   */
+  const extractSelectionAsFlow = useCallback(async (selectedText: string) => {
+    if (!selectedText || selectedText.split('\n').length < 3) return;
+
+    const firstLine = selectedText.split('\n')[0].trim();
+    // Try to extract a flow name from the header
+    const headerMatch = firstLine.match(/^#{1,3}\s+(.+)$/);
+    const name = headerMatch ? headerMatch[1].replace(/[:\-–—]\s*$/, '').trim() : 'FLUJO_SELECCIONADO';
+
+    const origin: FlowSourceOrigin = {
+      rawText: selectedText,
+      name,
+      headerAnchor: firstLine,
+    };
+
+    setExtractingFlow(true);
+
+    try {
+      const response = await fetch('/api/flow/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          flowText: selectedText,
+          flowName: name,
+          context: currentPrompt.substring(0, 1500),
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Error al extraer el flujo');
+      }
+
+      const data = await response.json();
+
+      if (data.flow && data.flow.nodes && data.flow.nodes.length > 0) {
+        setFlowData(data.flow);
+        markAsChanged();
+        clearTextFlowDetection();
+
+        useFlowStore.getState().setFlowSourceOrigin(origin);
+
+        if (currentProjectId && currentAgentId) {
+          updateAgent(currentProjectId, currentAgentId, { flowData: data.flow, flowSourceOrigin: origin });
+        }
+
+        useToastStore.getState().addToast(
+          `Flujo "${name}" extraido con ${data.flow.nodes.length} nodos`,
+          'success'
+        );
+      } else {
+        throw new Error('El modelo no genero nodos validos');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error al extraer el flujo';
+      useToastStore.getState().addToast(message, 'error');
+    } finally {
+      setExtractingFlow(false);
+    }
+  }, [currentPrompt, setFlowData, markAsChanged, clearTextFlowDetection, setExtractingFlow, currentProjectId, currentAgentId, updateAgent]);
+
+  return {
+    convertAsciiToFlow,
+    insertAsciiInPrompt,
+    convertTextFlowToVisual,
+    convertAllTextFlows,
+    insertFlowBackInPrompt,
+    extractSelectionAsFlow,
+  };
 }

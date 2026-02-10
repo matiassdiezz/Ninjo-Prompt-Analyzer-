@@ -36,7 +36,10 @@ import {
   Search,
   Undo2,
   Redo2,
+  Workflow,
 } from 'lucide-react';
+import { useFlowSync } from '@/lib/hooks/useFlowSync';
+import { useFlowStore } from '@/store/flowStore';
 
 interface EditorPanelProps {
   onSectionSelect?: (section: SemanticSection | null) => void;
@@ -87,6 +90,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const { getAntiPatterns, incrementUsage, getCurrentProject } = useKnowledgeStore();
   const currentProject = getCurrentProject();
   const { addToast } = useToastStore();
+  const { extractSelectionAsFlow } = useFlowSync();
+  const isExtractingFlow = useFlowStore((s) => s.isExtractingFlow);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
@@ -362,6 +367,15 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     setSelectedTextRange(null);
     setEditingAnnotation(undefined);
   }, []);
+
+  // Send selected text to flow editor
+  const handleSendToFlow = useCallback(async () => {
+    if (!selectedTextRange) return;
+    await extractSelectionAsFlow(selectedTextRange.text);
+    setSelectedTextRange(null);
+    // Switch to flowchart tab
+    window.dispatchEvent(new CustomEvent('switch-view', { detail: 'flowchart' }));
+  }, [selectedTextRange, extractSelectionAsFlow]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -701,6 +715,28 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
             >
               <MessageSquare className="h-3 w-3" />
               Comentar
+            </button>
+          )}
+          {/* Send to flow button - only when text selected with >= 3 lines */}
+          {selectedTextRange && selectedTextRange.text.split('\n').length >= 3 && (
+            <button
+              onClick={handleSendToFlow}
+              disabled={isExtractingFlow}
+              title="Extraer como flujo visual"
+              className={`${headerActionButtonClassName} animate-fadeIn`}
+              style={{
+                background: isExtractingFlow ? 'var(--bg-tertiary)' : 'var(--accent-glow)',
+                color: isExtractingFlow ? 'var(--text-muted)' : 'var(--accent-primary)',
+                border: '1px solid rgba(0, 212, 170, 0.2)',
+                cursor: isExtractingFlow ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {isExtractingFlow ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Workflow className="h-3 w-3" />
+              )}
+              {isExtractingFlow ? 'Extrayendo...' : 'Enviar a Flujos'}
             </button>
           )}
 

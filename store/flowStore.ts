@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { FlowNode, FlowEdge, FlowData, FlowNodeType, FlowPosition } from '@/types/flow';
+import type { FlowNode, FlowEdge, FlowData, FlowNodeType, FlowPosition, FlowSourceOrigin } from '@/types/flow';
 import { NODE_DIMENSIONS } from '@/types/flow';
 import type { FlowValidationWarning } from '@/lib/utils/flowValidator';
 import type { TextFlowDetection } from '@/lib/utils/textFlowDetector';
@@ -34,6 +34,9 @@ interface FlowStore {
 
   // Generation state
   isGeneratingFlow: boolean;
+
+  // Source origin (for roundtrip reinsertion)
+  flowSourceOrigin: FlowSourceOrigin | null;
 
   // Actions - Data management
   setFlowData: (data: FlowData) => void;
@@ -79,6 +82,9 @@ interface FlowStore {
 
   // Actions - Generation
   setGeneratingFlow: (generating: boolean) => void;
+
+  // Actions - Source origin
+  setFlowSourceOrigin: (origin: FlowSourceOrigin | null) => void;
 }
 
 // Generate unique IDs
@@ -117,6 +123,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   isExtractingFlow: false,
   selectedEdgeId: null,
   isGeneratingFlow: false,
+  flowSourceOrigin: null,
 
   // --- Undo/Redo ---
   pushFlowHistory: () => {
@@ -217,6 +224,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       edges: [],
       selectedNodeId: null,
       hasUnsavedChanges: false,
+      flowSourceOrigin: null,
     });
   },
 
@@ -403,5 +411,10 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   // Generation actions
   setGeneratingFlow: (generating: boolean) => {
     set({ isGeneratingFlow: generating });
+  },
+
+  // Source origin actions
+  setFlowSourceOrigin: (origin: FlowSourceOrigin | null) => {
+    set({ flowSourceOrigin: origin });
   },
 }));

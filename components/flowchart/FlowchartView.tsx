@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, Info } from 'lucide-react';
 import { useToastStore } from '@/store/toastStore';
 
 import { FlowchartCanvas } from './FlowchartCanvas';
@@ -63,7 +63,10 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
   } = useFlowStore();
 
   // Initialize sync with agent.flowData (includes ASCII + text flow detection)
-  const { convertAsciiToFlow, insertAsciiInPrompt, convertTextFlowToVisual, convertAllTextFlows } = useFlowSync();
+  const { convertAsciiToFlow, insertAsciiInPrompt, convertTextFlowToVisual, convertAllTextFlows, insertFlowBackInPrompt } = useFlowSync();
+
+  // Source origin for roundtrip reinsertion
+  const flowSourceOrigin = useFlowStore((s) => s.flowSourceOrigin);
 
   // Get React Flow instance for fit view
   const reactFlowInstance = useReactFlow();
@@ -362,6 +365,25 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
         </div>
       )}
 
+      {/* Source Origin Banner */}
+      {flowSourceOrigin && nodes.length > 0 && (
+        <div
+          className="flex items-center gap-2.5 px-4 py-2 border-b"
+          style={{
+            background: 'rgba(168, 85, 247, 0.08)',
+            borderColor: 'rgba(168, 85, 247, 0.2)',
+          }}
+        >
+          <Info className="h-3.5 w-3.5 shrink-0" style={{ color: '#a855f7' }} />
+          <span
+            className="text-xs flex-1"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            Extraido de <strong style={{ color: 'var(--text-primary)' }}>&quot;{flowSourceOrigin.name}&quot;</strong> — los cambios se pueden reinsertar en su posicion original
+          </span>
+        </div>
+      )}
+
       {/* Toolbar */}
       <FlowToolbar
         onAddNode={handleAddNode}
@@ -384,6 +406,8 @@ function FlowchartViewContent(_props: FlowchartViewProps) {
         canRedo={canRedoFlow}
         onClearFlow={handleClearFlow}
         onAutoLayout={handleAutoLayout}
+        onReinsertFlowInPrompt={insertFlowBackInPrompt}
+        hasSourceOrigin={!!flowSourceOrigin}
       />
 
       {/* Main content */}

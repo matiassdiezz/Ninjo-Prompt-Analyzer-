@@ -19,6 +19,7 @@ import {
 import { isSupabaseConfigured } from '@/lib/supabase/client';
 import {
   projectsRepository,
+  agentsRepository,
   versionsRepository,
   knowledgeRepository,
   decisionsRepository,
@@ -403,7 +404,7 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
             ...state.sync,
             pendingOperations: [
               ...state.sync.pendingOperations,
-              createPendingOperation('create', 'version', newVersion.id, { ...newVersion, projectId }),
+              createPendingOperation('create', 'version', newVersion.id, { ...newVersion, agentId: agent.id }),
             ],
           },
         }));
@@ -440,8 +441,17 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               updatedAt: Date.now(),
             };
           }),
+          sync: {
+            ...state.sync,
+            pendingOperations: [
+              ...state.sync.pendingOperations,
+              createPendingOperation('create', 'agent', agent.id, agent),
+              createPendingOperation('update', 'project', projectId, { currentAgentId: agent.id }),
+            ],
+          },
         }));
 
+        get().syncToSupabase();
         return agent.id;
       },
 
@@ -458,24 +468,48 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
               updatedAt: Date.now(),
             };
           }),
+          sync: {
+            ...state.sync,
+            pendingOperations: [
+              ...state.sync.pendingOperations,
+              createPendingOperation('update', 'agent', agentId, updates),
+            ],
+          },
         }));
+
+        get().syncToSupabase();
       },
 
       deleteAgent: (projectId, agentId) => {
-        set((state) => ({
-          projects: state.projects.map(p => {
-            if (p.id !== projectId) return p;
-            const filtered = p.agents.filter(a => a.id !== agentId);
-            return {
-              ...p,
-              agents: filtered,
-              currentAgentId: p.currentAgentId === agentId
-                ? (filtered.length > 0 ? filtered[0].id : null)
-                : p.currentAgentId,
-              updatedAt: Date.now(),
-            };
-          }),
-        }));
+        set((state) => {
+          const project = state.projects.find(p => p.id === projectId);
+          const filtered = project ? project.agents.filter(a => a.id !== agentId) : [];
+          const newCurrentAgentId = project?.currentAgentId === agentId
+            ? (filtered.length > 0 ? filtered[0].id : null)
+            : project?.currentAgentId || null;
+
+          return {
+            projects: state.projects.map(p => {
+              if (p.id !== projectId) return p;
+              return {
+                ...p,
+                agents: filtered,
+                currentAgentId: newCurrentAgentId,
+                updatedAt: Date.now(),
+              };
+            }),
+            sync: {
+              ...state.sync,
+              pendingOperations: [
+                ...state.sync.pendingOperations,
+                createPendingOperation('delete', 'agent', agentId),
+                createPendingOperation('update', 'project', projectId, { currentAgentId: newCurrentAgentId }),
+              ],
+            },
+          };
+        });
+
+        get().syncToSupabase();
       },
 
       setCurrentAgent: (projectId, agentId) => {
@@ -670,11 +704,12 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         if (data.data.projects) {
           data.data.projects.forEach((p: any) => {
             newOperations.push(createPendingOperation('create', 'project', p.id, p));
-            // Versions are now inside agents
+            // Agents and their versions
             const agents = p.agents || [];
             agents.forEach((a: any) => {
+              newOperations.push(createPendingOperation('create', 'agent', a.id, a));
               a.versions?.forEach((v: any) => {
-                newOperations.push(createPendingOperation('create', 'version', v.id, { ...v, projectId: p.id }));
+                newOperations.push(createPendingOperation('create', 'version', v.id, { ...v, agentId: a.id }));
               });
             });
           });
@@ -865,17 +900,19 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         }));
 
         // Sort operations by dependency order:
-        // 1. Projects first (versions depend on them)
-        // 2. Versions second (sorted topologically so parents come before children)
-        // 3. Knowledge and decisions last
+        // 1. Projects first (agents depend on them)
+        // 2. Agents second (versions depend on them)
+        // 3. Versions third (sorted topologically so parents come before children)
+        // 4. Knowledge and decisions last
         const entityOrder: Record<string, number> = {
           project: 1,
-          version: 2,
-          knowledge: 3,
-          decision: 4,
+          agent: 2,
+          version: 3,
+          knowledge: 4,
+          decision: 5,
         };
 
-        // First, separate operations by entity type
+        // Separate operations by entity type
         const pendingOps = [...sync.pendingOperations];
         const versionOps = pendingOps.filter(op => op.entity === 'version');
         const otherOps = pendingOps.filter(op => op.entity !== 'version');
@@ -888,11 +925,20 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
         // Topological sort of versions by parentVersionId (parents before children)
         const sortedVersionOps = topologicalSortVersions(versionOps);
 
-        // Combine: projects first, then sorted versions, then knowledge/decisions
+        // Project updates that set currentAgentId must run AFTER agent creates
+        // (FK constraint: current_agent_id references agents.id)
+        const projectCreates = otherOps.filter(op => op.entity === 'project' && op.type === 'create');
+        const projectUpdates = otherOps.filter(op => op.entity === 'project' && op.type !== 'create');
+        const agentOps = otherOps.filter(op => op.entity === 'agent');
+        const tailOps = otherOps.filter(op => entityOrder[op.entity] > 3); // knowledge, decisions
+
+        // Combine: project creates → agents → project updates → versions → knowledge/decisions
         const operations = [
-          ...otherOps.filter(op => entityOrder[op.entity] < 2), // projects
-          ...sortedVersionOps,                                   // versions (topologically sorted)
-          ...otherOps.filter(op => entityOrder[op.entity] > 2),  // knowledge, decisions
+          ...projectCreates,
+          ...agentOps,
+          ...projectUpdates,
+          ...sortedVersionOps,
+          ...tailOps,
         ];
 
         const processedIds: string[] = [];
@@ -922,12 +968,24 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
                   }
                   break;
                 }
+                case 'agent': {
+                  if (op.type === 'create') {
+                    const agentData = op.data as Agent;
+                    const result = await agentsRepository.create(agentData);
+                    success = !!result;
+                  } else if (op.type === 'update') {
+                    success = await agentsRepository.update(op.entityId, op.data as Partial<Agent>);
+                  } else if (op.type === 'delete') {
+                    success = await agentsRepository.delete(op.entityId);
+                  }
+                  break;
+                }
                 case 'version': {
                   if (op.type === 'create') {
-                    const versionData = op.data as PromptVersion & { projectId: string };
+                    const versionData = op.data as PromptVersion & { agentId: string };
                     const result = await versionsRepository.createWithId(
                       versionData,
-                      versionData.projectId
+                      versionData.agentId
                     );
                     success = !!result;
                   }
@@ -1022,10 +1080,52 @@ export const useKnowledgeStore = create<KnowledgeStore>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+
         // Migrate legacy projects (currentPrompt at project level) to agents[]
         const needsMigration = state.projects.some((p: any) => !Array.isArray(p.agents));
         if (needsMigration) {
           state.projects = migrateProjectsToAgents(state.projects);
+        }
+
+        // Schema v3 migration: clear stale pending ops and queue full re-sync
+        const SCHEMA_VERSION = 3;
+        const storedVersion = typeof window !== 'undefined'
+          ? localStorage.getItem('ninjo-schema-version')
+          : null;
+
+        if (!storedVersion || parseInt(storedVersion) < SCHEMA_VERSION) {
+          // Clear all stale pending operations (they reference old schema)
+          state.sync.pendingOperations = [];
+
+          // Queue full re-sync of all local data to new schema
+          const ops: PendingOperation[] = [];
+
+          for (const project of state.projects) {
+            ops.push(createPendingOperation('create', 'project', project.id, project));
+            for (const agent of project.agents) {
+              ops.push(createPendingOperation('create', 'agent', agent.id, agent));
+              for (const version of agent.versions) {
+                ops.push(createPendingOperation('create', 'version', version.id, {
+                  ...version,
+                  agentId: agent.id,
+                }));
+              }
+            }
+          }
+
+          for (const entry of state.entries) {
+            ops.push(createPendingOperation('create', 'knowledge', entry.id, entry));
+          }
+
+          for (const decision of state.decisions) {
+            ops.push(createPendingOperation('create', 'decision', decision.id, decision));
+          }
+
+          state.sync.pendingOperations = ops;
+
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('ninjo-schema-version', String(SCHEMA_VERSION));
+          }
         }
       },
     }

@@ -39,6 +39,16 @@ export interface FlowData {
   edges: FlowEdge[];
 }
 
+// Tracks where a flow was extracted from in the prompt (for roundtrip reinsertion)
+export interface FlowSourceOrigin {
+  rawText: string;        // Original text block that was extracted
+  name: string;           // Flow name (e.g. "RESOURCE_FLOW")
+  headerAnchor: string;   // First line of the header, used as fallback search anchor
+}
+
+// Output format for flow-to-text conversion
+export type FlowTextFormat = 'structured' | 'mermaid';
+
 // React Flow node data - includes index signature for React Flow compatibility
 export interface ReactFlowNodeData {
   label: string;

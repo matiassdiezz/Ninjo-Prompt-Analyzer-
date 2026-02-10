@@ -1,4 +1,4 @@
-import type { FlowData } from '@/types/flow';
+import type { FlowData, FlowSourceOrigin } from '@/types/flow';
 
 // Chat message for QA conversations
 export interface ChatMessage {
@@ -47,6 +47,7 @@ export interface Agent {
   annotations: PromptAnnotation[];
   chatMessages: ChatMessage[];
   flowData?: FlowData;
+  flowSourceOrigin?: FlowSourceOrigin;
   createdAt: number;
   updatedAt: number;
 }
@@ -138,32 +139,4 @@ export interface Prompt {
   content: string;
   createdAt: number;
   updatedAt: number;
-}
-
-// Fase 4: Colaboración - Comentarios en learnings
-export interface LearningComment {
-  id: string;
-  learningId: string;
-  deviceId: string;
-  authorName?: string;
-  content: string;
-  createdAt: number;
-  updatedAt: number;
-}
-
-// Fase 4: Colaboración - Votos de efectividad
-export interface LearningVote {
-  id: string;
-  learningId: string;
-  deviceId: string;
-  vote: -1 | 1;
-  createdAt: number;
-}
-
-// Fase 4: Colaboración - Progreso de onboarding
-export interface OnboardingProgress {
-  deviceId: string;
-  learningId: string;
-  markedRead: boolean;
-  readAt?: number;
 }

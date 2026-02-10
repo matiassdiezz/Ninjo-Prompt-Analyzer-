@@ -46,10 +46,7 @@ export const knowledgeRepository = {
   async createWithId(entry: KnowledgeEntry, deviceId: string): Promise<KnowledgeEntry | null> {
     if (!supabase) return null;
 
-    const dbEntry = {
-      id: entry.id,
-      ...mapAppKnowledgeEntryToDbInsert(entry, deviceId),
-    };
+    const dbEntry = mapAppKnowledgeEntryToDbInsert(entry, deviceId);
 
     console.log('Creating knowledge entry with data:', { dbEntry, deviceId });
 
@@ -87,6 +84,7 @@ export const knowledgeRepository = {
     if (updates.effectiveness !== undefined) dbUpdates.effectiveness = updates.effectiveness;
     if (updates.usageCount !== undefined) dbUpdates.usage_count = updates.usageCount;
     if (updates.projectIds !== undefined) dbUpdates.project_ids = updates.projectIds;
+    if (updates.category !== undefined) dbUpdates.category = updates.category;
 
     const { error } = await supabase
       .from('knowledge_entries')

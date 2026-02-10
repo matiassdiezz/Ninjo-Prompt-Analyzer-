@@ -14,6 +14,7 @@ import { FlowchartView } from '@/components/flowchart/FlowchartView';
 
 import { ProjectTreeSidebar } from '@/components/sidebar/ProjectTreeSidebar';
 import { AgentModal } from '@/components/agents/AgentModal';
+import { ProjectModal } from '@/components/projects/ProjectModal';
 import { SyncStatus } from '@/components/ui/SyncStatus';
 import { ToastContainer, NewLearningToast, GlobalToastContainer } from '@/components/ui/Toast';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
@@ -100,7 +101,10 @@ export default function Home() {
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  // Agent modal state
+  // Project modal state (step 1 of creation flow)
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
+
+  // Agent modal state (step 2 of creation flow, or standalone for adding agents)
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentModalProjectId, setAgentModalProjectId] = useState('');
   const [agentModalEdit, setAgentModalEdit] = useState<Agent | null>(null);
@@ -130,9 +134,24 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Listen for programmatic view switches (e.g. from EditorPanel "Enviar a Flujos")
+  useEffect(() => {
+    const handleSwitchView = (e: CustomEvent<ActiveView>) => {
+      setActiveView(e.detail);
+    };
+    window.addEventListener('switch-view', handleSwitchView as EventListener);
+    return () => window.removeEventListener('switch-view', handleSwitchView as EventListener);
+  }, []);
+
   const handleCreateProject = () => {
-    const id = createProject('Nuevo Proyecto', '');
+    setProjectModalOpen(true);
+  };
+
+  const handleProjectModalSubmit = (data: { name: string; clientName: string; description: string }) => {
+    const id = createProject(data.name, data.description, data.clientName);
     setCurrentProject(id);
+    setProjectModalOpen(false);
+    // Step 2: open agent modal for the new project
     setAgentModalProjectId(id);
     setAgentModalEdit(null);
     setAgentModalOpen(true);
@@ -495,7 +514,14 @@ export default function Home() {
         onClose={() => setShowShortcutsModal(false)}
       />
 
-      {/* Agent Modal */}
+      {/* Project Modal (step 1 of creation) */}
+      <ProjectModal
+        isOpen={projectModalOpen}
+        onClose={() => setProjectModalOpen(false)}
+        onSubmit={handleProjectModalSubmit}
+      />
+
+      {/* Agent Modal (step 2 of creation, or standalone) */}
       <AgentModal
         isOpen={agentModalOpen}
         onClose={() => setAgentModalOpen(false)}
