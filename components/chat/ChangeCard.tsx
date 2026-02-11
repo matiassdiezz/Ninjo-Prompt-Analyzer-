@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, X, Brain, ChevronDown, ChevronUp, ArrowRight, Trash2, Move, CornerDownRight } from 'lucide-react';
+import { Check, X, Brain, ChevronDown, ChevronUp, ArrowRight, Trash2, Move, CornerDownRight, Copy, ExternalLink, Undo2 } from 'lucide-react';
 import type { ParsedChange } from '@/lib/utils/changeParser';
 
 export type ChangeStatus = 'pending' | 'applied' | 'rejected';
@@ -11,6 +11,7 @@ interface ChangeCardProps {
   status: ChangeStatus;
   onApply: (change: ParsedChange) => void;
   onReject: (change: ParsedChange) => void;
+  onUndo: (change: ParsedChange) => void;
   onSaveLearning: (change: ParsedChange) => void;
   onNavigateToSection: (section: string) => void;
 }
@@ -36,14 +37,26 @@ export function ChangeCard({
   status,
   onApply,
   onReject,
+  onUndo,
   onSaveLearning,
   onNavigateToSection,
 }: ChangeCardProps) {
   const [expanded, setExpanded] = useState(true);
+  const [copiedField, setCopiedField] = useState<'before' | 'after' | null>(null);
   const actionColor = ACTION_COLORS[change.action] || ACTION_COLORS.replace;
   const isKeep = change.action === 'keep';
   const isApplied = status === 'applied';
   const isRejected = status === 'rejected';
+
+  const handleCopyText = async (text: string, field: 'before' | 'after') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 2000);
+    } catch {
+      // Fallback for older browsers
+    }
+  };
 
   return (
     <div
@@ -60,75 +73,78 @@ export function ChangeCard({
         opacity: isRejected ? 0.6 : 1,
       }}
     >
-      {/* Header */}
+      {/* Header - Two lines */}
       <div
-        className="flex items-center justify-between px-3 py-2 cursor-pointer"
+        className="px-3 py-2 cursor-pointer"
         onClick={() => setExpanded(!expanded)}
         style={{ borderBottom: expanded ? '1px solid var(--border-subtle)' : 'none' }}
       >
-        <div className="flex items-center gap-2 min-w-0">
-          {isApplied && (
-            <div
-              className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(0, 212, 170, 0.2)' }}
+        {/* Line 1: Status + Title + Action badge + Chevron */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            {isApplied && (
+              <div
+                className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(0, 212, 170, 0.2)' }}
+              >
+                <Check className="h-3 w-3" style={{ color: '#00d4aa' }} />
+              </div>
+            )}
+            {isRejected && (
+              <div
+                className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(239, 68, 68, 0.2)' }}
+              >
+                <X className="h-3 w-3" style={{ color: '#f87171' }} />
+              </div>
+            )}
+            <span
+              className="text-xs font-semibold truncate"
+              style={{
+                color: isRejected ? 'var(--text-muted)' : 'var(--text-primary)',
+                textDecoration: isRejected ? 'line-through' : 'none',
+              }}
             >
-              <Check className="h-3 w-3" style={{ color: '#00d4aa' }} />
-            </div>
-          )}
-          {isRejected && (
-            <div
-              className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(239, 68, 68, 0.2)' }}
+              Cambio {change.index}: {change.title}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Action badge */}
+            <span
+              className="px-1.5 py-0.5 rounded text-[10px] font-medium"
+              style={{
+                background: actionColor.bg,
+                color: actionColor.text,
+              }}
             >
-              <X className="h-3 w-3" style={{ color: '#f87171' }} />
-            </div>
-          )}
-          <span
-            className="text-xs font-semibold truncate"
-            style={{
-              color: isRejected ? 'var(--text-muted)' : 'var(--text-primary)',
-              textDecoration: isRejected ? 'line-through' : 'none',
-            }}
-          >
-            Cambio {change.index}: {change.title}
-          </span>
+              {ACTION_LABELS[change.action]}
+            </span>
+
+            {expanded ? (
+              <ChevronUp className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
+            ) : (
+              <ChevronDown className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Section tag */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onNavigateToSection(change.section);
-            }}
-            className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors hover:brightness-110"
-            style={{
-              background: actionColor.bg,
-              color: actionColor.text,
-              border: `1px solid ${actionColor.border}`,
-            }}
-            title={`Ir a sección: ${change.section}`}
-          >
-            {change.section}
-          </button>
-
-          {/* Action badge */}
-          <span
-            className="px-1.5 py-0.5 rounded text-[10px] font-medium"
-            style={{
-              background: actionColor.bg,
-              color: actionColor.text,
-            }}
-          >
-            {ACTION_LABELS[change.action]}
-          </span>
-
-          {expanded ? (
-            <ChevronUp className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
-          ) : (
-            <ChevronDown className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
-          )}
-        </div>
+        {/* Line 2: Section (clickable, full text) */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigateToSection(change.section);
+          }}
+          className="flex items-center gap-1 mt-1 text-[11px] font-medium transition-opacity hover:opacity-100"
+          style={{
+            color: actionColor.text,
+            opacity: 0.8,
+            marginLeft: isApplied || isRejected ? '1.75rem' : '0',
+          }}
+        >
+          <ExternalLink className="h-3 w-3 flex-shrink-0" />
+          {change.section}
+        </button>
       </div>
 
       {/* Body */}
@@ -170,16 +186,36 @@ export function ChangeCard({
                     : 'Antes'}
                 </span>
               </div>
-              <pre
-                className="text-xs p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap"
-                style={{
-                  background: 'rgba(239, 68, 68, 0.06)',
-                  border: '1px solid rgba(239, 68, 68, 0.15)',
-                  color: 'var(--text-secondary)',
-                }}
+              <div
+                className="relative group/before cursor-pointer"
+                onClick={() => handleCopyText(change.beforeText!, 'before')}
+                title="Click para copiar"
               >
-                {change.beforeText}
-              </pre>
+                <pre
+                  className="text-xs p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap transition-all duration-150"
+                  style={{
+                    background: copiedField === 'before' ? 'rgba(0, 212, 170, 0.1)' : 'rgba(239, 68, 68, 0.06)',
+                    border: `1px solid ${copiedField === 'before' ? 'rgba(0, 212, 170, 0.3)' : 'rgba(239, 68, 68, 0.15)'}`,
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {change.beforeText}
+                </pre>
+                <span
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover/before:opacity-100 transition-opacity text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded"
+                  style={{
+                    color: copiedField === 'before' ? '#00d4aa' : 'var(--text-muted)',
+                    background: 'var(--bg-tertiary)',
+                    opacity: copiedField === 'before' ? 1 : undefined,
+                  }}
+                >
+                  {copiedField === 'before' ? (
+                    <><Check className="h-2.5 w-2.5" /> Copiado</>
+                  ) : (
+                    <><Copy className="h-2.5 w-2.5" /> Copiar</>
+                  )}
+                </span>
+              </div>
             </div>
           )}
 
@@ -205,16 +241,36 @@ export function ChangeCard({
                   {change.action === 'insert' ? 'Insertar' : 'Después'}
                 </span>
               </div>
-              <pre
-                className="text-xs p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap"
-                style={{
-                  background: 'rgba(0, 212, 170, 0.06)',
-                  border: '1px solid rgba(0, 212, 170, 0.15)',
-                  color: 'var(--text-secondary)',
-                }}
+              <div
+                className="relative group/after cursor-pointer"
+                onClick={() => handleCopyText(change.afterText!, 'after')}
+                title="Click para copiar"
               >
-                {change.afterText}
-              </pre>
+                <pre
+                  className="text-xs p-2.5 rounded-lg overflow-x-auto whitespace-pre-wrap transition-all duration-150"
+                  style={{
+                    background: copiedField === 'after' ? 'rgba(0, 212, 170, 0.15)' : 'rgba(0, 212, 170, 0.06)',
+                    border: `1px solid ${copiedField === 'after' ? 'rgba(0, 212, 170, 0.4)' : 'rgba(0, 212, 170, 0.15)'}`,
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {change.afterText}
+                </pre>
+                <span
+                  className="absolute top-1.5 right-1.5 opacity-0 group-hover/after:opacity-100 transition-opacity text-[10px] flex items-center gap-1 px-1.5 py-0.5 rounded"
+                  style={{
+                    color: copiedField === 'after' ? '#00d4aa' : 'var(--text-muted)',
+                    background: 'var(--bg-tertiary)',
+                    opacity: copiedField === 'after' ? 1 : undefined,
+                  }}
+                >
+                  {copiedField === 'after' ? (
+                    <><Check className="h-2.5 w-2.5" /> Copiado</>
+                  ) : (
+                    <><Copy className="h-2.5 w-2.5" /> Copiar</>
+                  )}
+                </span>
+              </div>
             </div>
           )}
 
@@ -284,9 +340,23 @@ export function ChangeCard({
                 </>
               )}
               {isApplied && (
-                <span className="text-xs font-medium" style={{ color: '#00d4aa' }}>
-                  Cambio aplicado
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium" style={{ color: '#00d4aa' }}>
+                    Cambio aplicado
+                  </span>
+                  <button
+                    onClick={() => onUndo(change)}
+                    className="px-2 py-1 rounded-lg text-[11px] font-medium transition-colors hover:brightness-110 flex items-center gap-1"
+                    style={{
+                      background: 'var(--bg-elevated)',
+                      color: 'var(--text-secondary)',
+                      border: '1px solid var(--border-subtle)',
+                    }}
+                  >
+                    <Undo2 className="h-3 w-3" />
+                    Deshacer
+                  </button>
+                </div>
               )}
               {isRejected && (
                 <span className="text-xs font-medium" style={{ color: '#f87171' }}>

@@ -17,12 +17,12 @@ import type { KnowledgeEntry } from '@/types/prompt';
 import { useToastStore } from '@/store/toastStore';
 import {
   FileText,
-  Hash,
   Sparkles,
   Save,
   Check,
-  Clock,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   MessageSquare,
   Clipboard,
   Code,
@@ -38,9 +38,113 @@ import {
   Undo2,
   Redo2,
   Workflow,
+  X,
+  PanelLeftClose,
+  PanelLeftOpen,
+  MoreVertical,
 } from 'lucide-react';
 import { useFlowSync } from '@/lib/hooks/useFlowSync';
 import { useFlowStore } from '@/store/flowStore';
+
+// ── Toolbar dropdown helpers ──
+
+function EditorToolbarDropdown({
+  icon: Icon,
+  children,
+  title,
+}: {
+  icon: React.ElementType;
+  children: React.ReactNode;
+  title?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    if (open) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="h-8 flex items-center gap-1 px-2.5 rounded-lg text-xs font-medium transition-all"
+        style={{
+          background: open ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
+          color: open ? 'var(--accent-primary)' : 'var(--text-muted)',
+          border: `1px solid ${open ? 'var(--border-accent)' : 'rgba(88, 166, 255, 0.18)'}`,
+        }}
+        title={title}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        <ChevronDown className="h-3 w-3" style={{ opacity: 0.5 }} />
+      </button>
+
+      {open && (
+        <div
+          className="absolute top-full right-0 mt-1 min-w-[190px] rounded-lg overflow-hidden z-50 animate-slideDown"
+          style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border-default)',
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <div className="py-1" onClick={() => setOpen(false)}>
+            {children}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditorDropdownItem({
+  icon: Icon,
+  label,
+  onClick,
+  shortcut,
+  active,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  shortcut?: string;
+  active?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs transition-colors"
+      style={{
+        color: active ? 'var(--accent-primary)' : 'var(--text-secondary)',
+        background: active ? 'var(--accent-subtle)' : 'transparent',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background = active ? 'var(--accent-subtle)' : 'var(--bg-tertiary)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = active ? 'var(--accent-subtle)' : 'transparent';
+      }}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="flex-1 text-left font-medium">{label}</span>
+      {shortcut && (
+        <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>{shortcut}</span>
+      )}
+      {active && (
+        <Check className="h-3 w-3 shrink-0" style={{ color: 'var(--accent-primary)' }} />
+      )}
+    </button>
+  );
+}
+
+function EditorDropdownDivider() {
+  return <div className="my-1 mx-2" style={{ borderTop: '1px solid var(--border-subtle)' }} />;
+}
 
 interface EditorPanelProps {
   onSectionSelect?: (section: SemanticSection | null) => void;
@@ -84,7 +188,6 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     promptHistory,
     hasUnsavedChanges,
     autoSaveEnabled,
-    setAutoSaveEnabled,
     saveManualVersion,
   } = useAnalysisStore();
   
@@ -110,7 +213,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const [isPasting, setIsPasting] = useState(false);
   
   // Contextual suggestions state
-  const [sidePanel, setSidePanel] = useState<'suggestions' | 'chat' | null>('suggestions');
+  const [sidePanel, setSidePanel] = useState<'suggestions' | 'chat' | null>(null);
   const [applyLearningModal, setApplyLearningModal] = useState<{
     learning: KnowledgeEntry;
     section: SemanticSection;
@@ -128,6 +231,15 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
   const [justCopied, setJustCopied] = useState(false);
   const [sectionSearchQuery, setSectionSearchQuery] = useState('');
   const [isSectionSearchFocused, setIsSectionSearchFocused] = useState(false);
+
+  // Text search state
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Structure sidebar collapse state
+  const [structureSidebarCollapsed, setStructureSidebarCollapsed] = useState(false);
 
   const lines = currentPrompt.split('\n');
   const lineCount = lines.length;
@@ -152,6 +264,29 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     }
     return estimatedTokenCount.toString();
   }, [estimatedTokenCount]);
+
+  // Text search matches
+  const searchMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    const text = currentPrompt.toLowerCase();
+    const matches: number[] = [];
+    let idx = text.indexOf(q);
+    while (idx !== -1) {
+      matches.push(idx);
+      idx = text.indexOf(q, idx + 1);
+    }
+    return matches;
+  }, [searchQuery, currentPrompt]);
+
+  // Reset match index when matches change
+  useEffect(() => {
+    if (searchMatches.length > 0) {
+      setCurrentMatchIndex(prev => Math.min(prev, searchMatches.length - 1));
+    } else {
+      setCurrentMatchIndex(0);
+    }
+  }, [searchMatches]);
 
   const headerActionButtonClassName =
     'h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs font-medium transition-all whitespace-nowrap';
@@ -266,6 +401,44 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     applyScroll();
     requestAnimationFrame(applyScroll);
   };
+
+  // Search navigation
+  const navigateToMatch = useCallback((index: number) => {
+    if (!textareaRef.current || searchMatches.length === 0) return;
+    const textarea = textareaRef.current;
+    const matchStart = searchMatches[index];
+    const matchEnd = matchStart + searchQuery.trim().length;
+
+    textarea.focus();
+    textarea.setSelectionRange(matchStart, matchEnd);
+
+    if (isWrapEnabled) {
+      scrollTextareaToOffset(textarea, matchStart);
+    } else {
+      const textBefore = currentPrompt.substring(0, matchStart);
+      const lineNumber = textBefore.split('\n').length;
+      const lineHeight = 22;
+      const viewportHeight = textarea.clientHeight || 0;
+      textarea.scrollTop = Math.max(0, (lineNumber - 1) * lineHeight - viewportHeight / 2);
+      if (lineNumbersRef.current) {
+        lineNumbersRef.current.scrollTop = textarea.scrollTop;
+      }
+    }
+  }, [searchMatches, searchQuery, currentPrompt, isWrapEnabled, scrollTextareaToOffset]);
+
+  const goToNextMatch = useCallback(() => {
+    if (searchMatches.length === 0) return;
+    const next = (currentMatchIndex + 1) % searchMatches.length;
+    setCurrentMatchIndex(next);
+    navigateToMatch(next);
+  }, [currentMatchIndex, searchMatches.length, navigateToMatch]);
+
+  const goToPrevMatch = useCallback(() => {
+    if (searchMatches.length === 0) return;
+    const prev = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    setCurrentMatchIndex(prev);
+    navigateToMatch(prev);
+  }, [currentMatchIndex, searchMatches.length, navigateToMatch]);
 
   const handleSectionClick = (section: SemanticSection) => {
     // Always keep the section selected; clicking again should re-navigate
@@ -399,6 +572,25 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
           setShowSaveModal(true);
         }
       }
+      // Cmd/Ctrl + F to toggle search
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setShowSearch(prev => {
+          if (!prev) {
+            setTimeout(() => searchInputRef.current?.focus(), 50);
+          } else {
+            setSearchQuery('');
+          }
+          return !prev;
+        });
+      }
+      // Escape to close search bar
+      if (e.key === 'Escape' && showSearch) {
+        setShowSearch(false);
+        setSearchQuery('');
+        textareaRef.current?.focus();
+        return;
+      }
       // Cmd/Ctrl + Z to undo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -412,25 +604,39 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedTextRange, showAnnotationPopover, handleAddAnnotation, handleCloseAnnotationPopover, hasUnsavedChanges, undo, redo]);
+  }, [selectedTextRange, showAnnotationPopover, showSearch, handleAddAnnotation, handleCloseAnnotationPopover, hasUnsavedChanges, undo, redo]);
 
   // Listen for navigate-to-section events from chat
   useEffect(() => {
     const handleNavigateToSection = (e: CustomEvent<{ section: string }>) => {
-      const sectionName = e.detail.section.toLowerCase();
-      
-      // Find section by title or tag name
+      const sectionNameLower = e.detail.section.toLowerCase();
+
+      // Clean the AI's section name: remove parenthetical notes and trailing dash notes
+      const cleanedName = sectionNameLower
+        .replace(/\s*\(.*\)\s*/g, '')
+        .replace(/\s*-\s+.*$/, '')
+        .trim();
+
+      // Find section by multiple matching strategies
       const matchingSection = sections.find(s => {
-        const titleMatch = s.title.toLowerCase().includes(sectionName);
-        const tagMatch = s.tagName?.toLowerCase() === sectionName;
-        return titleMatch || tagMatch;
+        const titleLower = s.title.toLowerCase();
+        const tagLower = s.tagName?.toLowerCase() || '';
+        // Exact match
+        if (titleLower === cleanedName || tagLower === cleanedName) return true;
+        // Title contains cleaned name
+        if (titleLower.includes(cleanedName) && cleanedName.length > 3) return true;
+        // Cleaned name contains title (AI gave a longer description)
+        if (cleanedName.includes(titleLower) && titleLower.length > 3) return true;
+        // Tag name match
+        if (tagLower && (cleanedName.includes(tagLower) || tagLower.includes(cleanedName))) return true;
+        return false;
       });
-      
+
       if (matchingSection) {
         handleSectionClick(matchingSection);
       }
     };
-    
+
     window.addEventListener('navigate-to-section', handleNavigateToSection as EventListener);
     return () => window.removeEventListener('navigate-to-section', handleNavigateToSection as EventListener);
   }, [sections]);
@@ -701,8 +907,8 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-2">
-          {/* Add comment button - only when text selected */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          {/* Contextual: Add comment */}
           {selectedTextRange && (
             <button
               onClick={handleAddAnnotation}
@@ -715,10 +921,10 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               }}
             >
               <MessageSquare className="h-3 w-3" />
-              Comentar
+              <span className="hidden sm:inline">Comentar</span>
             </button>
           )}
-          {/* Send to flow button - only when text selected with >= 3 lines */}
+          {/* Contextual: Send to flow */}
           {selectedTextRange && selectedTextRange.text.split('\n').length >= 3 && (
             <button
               onClick={handleSendToFlow}
@@ -737,28 +943,11 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               ) : (
                 <Workflow className="h-3 w-3" />
               )}
-              {isExtractingFlow ? 'Extrayendo...' : 'Enviar a Flujos'}
+              <span className="hidden sm:inline">{isExtractingFlow ? 'Extrayendo...' : 'Enviar a Flujos'}</span>
             </button>
           )}
 
-          {/* Version info */}
-          {/* {hasContent && (
-            <div
-              className="h-8 flex items-center gap-1.5 px-3 rounded-lg text-xs whitespace-nowrap"
-              style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}
-            >
-              <Clock className="h-3 w-3" style={{ color: 'var(--text-muted)' }} />
-              <span style={{ color: 'var(--text-secondary)' }}>{promptHistory.length}v</span>
-              {hasUnsavedChanges && (
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: 'var(--warning)' }}
-                />
-              )}
-            </div>
-          )} */}
-
-          {/* Undo/Redo buttons */}
+          {/* Undo/Redo */}
           {hasContent && (
             <div className="flex items-center gap-0.5">
               <button
@@ -772,7 +961,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                   opacity: canUndo() ? 1 : 0.4,
                 }}
                 aria-label="Deshacer"
-                title="Deshacer"
+                title="Deshacer (⌘Z)"
               >
                 <Undo2 className="h-3 w-3" />
               </button>
@@ -787,14 +976,14 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                   opacity: canRedo() ? 1 : 0.4,
                 }}
                 aria-label="Rehacer"
-                title="Rehacer"
+                title="Rehacer (⌘⇧Z)"
               >
                 <Redo2 className="h-3 w-3" />
               </button>
             </div>
           )}
 
-           {/* Save button */}
+          {/* Save button with integrated status */}
           {hasContent && (
             <button
               onClick={() => setShowSaveModal(true)}
@@ -813,122 +1002,70 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               {justSaved ? (
                 <>
                   <Check className="h-3.5 w-3.5" />
-                  Guardado v{promptHistory.length}
+                  <span className="hidden sm:inline">v{promptHistory.length}</span>
                 </>
               ) : (
                 <>
                   <Save className="h-3.5 w-3.5" />
-                  Guardar v{promptHistory.length + 1}
+                  <span className="hidden sm:inline">v{promptHistory.length + 1}</span>
                 </>
               )}
             </button>
           )}
 
-          {/* Auto-save status indicator */}
+          {/* Tools dropdown — groups secondary actions */}
           {hasContent && (
-            <div
-              className="h-8 flex items-center gap-1.5 px-2.5 rounded-lg text-[11px] whitespace-nowrap"
-              style={{
-                background: hasUnsavedChanges ? 'var(--bg-elevated)' : 'var(--success-subtle)',
-                border: `1px solid ${hasUnsavedChanges ? 'var(--border-subtle)' : 'rgba(63, 185, 80, 0.25)'}`,
-              }}
-              title={hasUnsavedChanges ? 'Guardando cambios...' : 'Todos los cambios guardados'}
-            >
-              {hasUnsavedChanges ? (
+            <EditorToolbarDropdown icon={MoreVertical} title="Herramientas">
+              <EditorDropdownItem
+                icon={Copy}
+                label={justCopied ? 'Copiado!' : 'Copiar prompt'}
+                onClick={handleCopyToClipboard}
+              />
+              <EditorDropdownItem
+                icon={FileText}
+                label={isWrapEnabled ? 'Wrap: Activo' : 'Wrap: Inactivo'}
+                onClick={() => setIsWrapEnabled(!isWrapEnabled)}
+                active={isWrapEnabled}
+              />
+              <EditorDropdownItem
+                icon={Search}
+                label="Buscar"
+                onClick={() => {
+                  setShowSearch(prev => {
+                    if (!prev) {
+                      setTimeout(() => searchInputRef.current?.focus(), 50);
+                    } else {
+                      setSearchQuery('');
+                    }
+                    return !prev;
+                  });
+                }}
+                shortcut="⌘F"
+                active={showSearch}
+              />
+              {selectedSection && (
                 <>
-                  <span
-                    className="w-1.5 h-1.5 rounded-full animate-pulse"
-                    style={{ background: 'var(--warning)' }}
+                  <EditorDropdownDivider />
+                  <EditorDropdownItem
+                    icon={Sparkles}
+                    label="Sugerencias"
+                    onClick={() => setSidePanel(sidePanel === 'suggestions' ? null : 'suggestions')}
+                    active={sidePanel === 'suggestions'}
                   />
-                  <span style={{ color: 'var(--text-muted)' }}>Guardando...</span>
-                </>
-              ) : (
-                <>
-                  <Check className="h-3 w-3" style={{ color: 'var(--success)' }} />
-                  <span style={{ color: 'var(--success)' }}>Guardado</span>
                 </>
               )}
-            </div>
-          )}
-
-          {/* Wrap / No wrap toggle */}
-          {hasContent && (
-            <button
-              onClick={() => setIsWrapEnabled(!isWrapEnabled)}
-              className={headerActionButtonClassName}
-              style={{
-                background: isWrapEnabled ? 'var(--info-subtle)' : 'var(--bg-elevated)',
-                color: isWrapEnabled ? 'var(--info)' : 'var(--text-muted)',
-                border: `1px solid ${isWrapEnabled ? 'rgba(88, 166, 255, 0.28)' : 'rgba(88, 166, 255, 0.18)'}`,
-              }}
-              title={isWrapEnabled ? 'Wrap activo' : 'Wrap inactivo'}
-            >
-              <span className="font-semibold">Wrap</span>
-            </button>
-          )}
-
-          {/* Suggestions toggle */}
-          {hasContent && selectedSection && (
-            <button
-              onClick={() => setSidePanel(sidePanel === 'suggestions' ? null : 'suggestions')}
-              className={headerActionButtonClassName}
-              style={{
-                background: sidePanel === 'suggestions' ? 'var(--accent-subtle)' : 'var(--bg-elevated)',
-                color: sidePanel === 'suggestions' ? 'var(--accent-primary)' : 'var(--text-muted)',
-                border: `1px solid ${sidePanel === 'suggestions' ? 'var(--border-accent)' : 'rgba(88, 166, 255, 0.18)'}`,
-              }}
-              title="Sugerencias contextuales"
-            >
-              <span className="hidden sm:inline">Sugerencias</span>
-            </button>
-          )}
-
-          {/* AI Chat toggle - only in fullscreen */}
-          {hasContent && isFullscreenEditor && (
-            <button
-              onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')}
-              className={headerActionButtonClassName}
-              style={{
-                background: sidePanel === 'chat' ? 'var(--info-subtle)' : 'var(--bg-elevated)',
-                color: sidePanel === 'chat' ? 'var(--info)' : 'var(--text-muted)',
-                border: `1px solid ${sidePanel === 'chat' ? 'rgba(88, 166, 255, 0.28)' : 'rgba(88, 166, 255, 0.18)'}`,
-              }}
-              title="Asistente AI"
-            >
-              <MessageSquare className="h-3 w-3" />
-              <span className="hidden sm:inline">AI Chat</span>
-            </button>
-          )}
-
-          {/* Copy button - only show in fullscreen */}
-          {hasContent && (
-            <button
-              onClick={handleCopyToClipboard}
-              disabled={justCopied}
-              className={headerActionButtonClassName}
-              style={{
-                background: 'var(--bg-elevated)',
-                color: 'var(--text-muted)',
-                border: '1px solid rgba(88, 166, 255, 0.18)',
-              }}
-              title="Copiar prompt"
-              aria-label="Copiar prompt"
-            >
-              {justCopied ? (
-                <>
-                  <Check className="h-3 w-3" />
-                </>
-              ) : (
-                <>
-                  <Copy className="h-3 w-3" />
-                </>
+              {isFullscreenEditor && (
+                <EditorDropdownItem
+                  icon={MessageSquare}
+                  label="AI Chat"
+                  onClick={() => setSidePanel(sidePanel === 'chat' ? null : 'chat')}
+                  active={sidePanel === 'chat'}
+                />
               )}
-            </button>
+            </EditorToolbarDropdown>
           )}
 
-         
-
-          {/* Expandir/Minimizar button */}
+          {/* Expand/Minimize */}
           {hasContent && !isFullscreenEditor && (
             <button
               onClick={() => setIsFullscreenEditor(true)}
@@ -944,7 +1081,6 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               <Maximize2 className="h-3 w-3" />
             </button>
           )}
-
           {isFullscreenEditor && (
             <button
               onClick={() => setIsFullscreenEditor(false)}
@@ -963,12 +1099,115 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
         </div>
       </div>
 
+      {/* Search Bar */}
+      {showSearch && (
+        <div
+          className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 border-b animate-slideDown"
+          style={{
+            background: 'var(--bg-tertiary)',
+            borderColor: 'var(--border-subtle)',
+          }}
+        >
+          <Search className="h-3.5 w-3.5 flex-shrink-0" style={{ color: 'var(--text-muted)' }} />
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                  goToPrevMatch();
+                } else {
+                  goToNextMatch();
+                }
+              }
+            }}
+            placeholder="Buscar en el prompt..."
+            className="flex-1 bg-transparent outline-none text-xs"
+            style={{
+              color: 'var(--text-primary)',
+              boxShadow: 'none',
+              minWidth: 0,
+            }}
+          />
+          {searchQuery.trim() && (
+            <span
+              className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{
+                background: searchMatches.length > 0 ? 'var(--accent-subtle)' : 'var(--error-subtle)',
+                color: searchMatches.length > 0 ? 'var(--accent-primary)' : 'var(--error)',
+              }}
+            >
+              {searchMatches.length > 0
+                ? `${currentMatchIndex + 1}/${searchMatches.length}`
+                : 'Sin resultados'}
+            </span>
+          )}
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button
+              onClick={goToPrevMatch}
+              disabled={searchMatches.length === 0}
+              className="p-1 rounded transition-colors"
+              style={{
+                color: searchMatches.length > 0 ? 'var(--text-secondary)' : 'var(--text-muted)',
+                opacity: searchMatches.length > 0 ? 1 : 0.4,
+              }}
+              title="Anterior (Shift+Enter)"
+            >
+              <ChevronUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={goToNextMatch}
+              disabled={searchMatches.length === 0}
+              className="p-1 rounded transition-colors"
+              style={{
+                color: searchMatches.length > 0 ? 'var(--text-secondary)' : 'var(--text-muted)',
+                opacity: searchMatches.length > 0 ? 1 : 0.4,
+              }}
+              title="Siguiente (Enter)"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <button
+            onClick={() => {
+              setShowSearch(false);
+              setSearchQuery('');
+              textareaRef.current?.focus();
+            }}
+            className="p-1 rounded transition-colors"
+            style={{ color: 'var(--text-muted)' }}
+            title="Cerrar (Escape)"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Main Editor Area */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Sections Panel - Only show when there's content and sections */}
+        {/* Sections Panel - Collapsible */}
         {hasContent && sections.length > 0 && (
+          structureSidebarCollapsed ? (
+            /* Collapsed: thin vertical bar */
+            <div
+              className="border-r flex-shrink-0 flex flex-col items-center cursor-pointer transition-all duration-200"
+              style={{
+                width: '28px',
+                background: 'var(--bg-tertiary)',
+                borderColor: 'var(--border-subtle)',
+              }}
+              onClick={() => setStructureSidebarCollapsed(false)}
+              title="Mostrar estructura"
+            >
+              <div className="mt-3">
+                <PanelLeftOpen className="h-3.5 w-3.5" style={{ color: 'var(--text-muted)' }} />
+              </div>
+            </div>
+          ) : (
           <div
-            className="w-52 border-r overflow-y-auto flex-shrink-0"
+            className="w-52 border-r overflow-y-auto flex-shrink-0 transition-all duration-200"
             style={{ background: 'var(--bg-tertiary)', borderColor: 'var(--border-subtle)' }}
           >
             <div className="p-3">
@@ -985,6 +1224,14 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
                 >
                   {sectionSearchQuery.trim().length > 0 ? filteredSectionsSidebarModel.topLevelSections.length : sections.length}
                 </span>
+                <button
+                  onClick={() => setStructureSidebarCollapsed(true)}
+                  className="ml-auto p-0.5 rounded transition-colors hover:bg-[var(--bg-elevated)]"
+                  style={{ color: 'var(--text-muted)' }}
+                  title="Ocultar estructura"
+                >
+                  <PanelLeftClose className="h-3 w-3" />
+                </button>
               </div>
 
               <div className="mb-3">
@@ -1133,6 +1380,7 @@ export function EditorPanel({ onSectionSelect }: EditorPanelProps) {
               </nav>
             </div>
           </div>
+          )
         )}
 
         {/* Editor Container */}

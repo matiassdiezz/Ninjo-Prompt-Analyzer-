@@ -2,6 +2,8 @@
  * Text Matcher - Finds text in prompts using multiple strategies
  */
 
+import { parseSemanticSections } from '@/lib/semanticParser';
+
 export type MatchStrategy = 'exact' | 'normalized' | 'fuzzy';
 
 export interface TextMatchResult {
@@ -195,6 +197,144 @@ export function findTextInPrompt(
     strategy: 'exact',
     confidence: 0,
   };
+}
+
+// --- Insertion Point Resolution ---
+
+export type InsertionDirection = 'after' | 'before' | 'end-of-section' | 'start-of-section';
+
+export interface InsertionPointResult extends TextMatchResult {
+  insertionIndex: number;
+  direction: InsertionDirection;
+}
+
+/**
+ * Directional prefixes that appear in AI-generated location descriptions.
+ * Order matters: longer/more-specific patterns first.
+ */
+const DIRECTION_PREFIXES: Array<{ pattern: RegExp; direction: InsertionDirection }> = [
+  { pattern: /^al\s+final\s+de\s+/i, direction: 'end-of-section' },
+  { pattern: /^al\s+inicio\s+de\s+/i, direction: 'start-of-section' },
+  { pattern: /^al\s+comienzo\s+de\s+/i, direction: 'start-of-section' },
+  { pattern: /^despu[eé]s\s+de\s+/i, direction: 'after' },
+  { pattern: /^debajo\s+de\s+/i, direction: 'after' },
+  { pattern: /^abajo\s+de\s+/i, direction: 'after' },
+  { pattern: /^antes\s+de\s+/i, direction: 'before' },
+  { pattern: /^dentro\s+de\s+/i, direction: 'end-of-section' },
+];
+
+/**
+ * Strip directional prefix and surrounding quotes from a location description.
+ */
+function parseLocationDescription(location: string): { anchor: string; direction: InsertionDirection } {
+  let text = location.trim();
+  let direction: InsertionDirection = 'after';
+
+  for (const { pattern, direction: dir } of DIRECTION_PREFIXES) {
+    if (pattern.test(text)) {
+      text = text.replace(pattern, '');
+      direction = dir;
+      break;
+    }
+  }
+
+  // Strip surrounding quotes
+  text = text.trim();
+  if ((text.startsWith('"') && text.endsWith('"')) ||
+      (text.startsWith("'") && text.endsWith("'")) ||
+      (text.startsWith('`') && text.endsWith('`'))) {
+    text = text.slice(1, -1);
+  }
+
+  return { anchor: text.trim(), direction };
+}
+
+/**
+ * Resolve an AI-generated location description to a concrete insertion index in the prompt.
+ * Handles directional prefixes, quoted anchor text, and section-level fallback.
+ */
+export function resolveInsertionPoint(
+  prompt: string,
+  locationDescription: string,
+  sectionName?: string
+): InsertionPointResult {
+  const { anchor, direction } = parseLocationDescription(locationDescription);
+
+  const notFound: InsertionPointResult = {
+    found: false, startIndex: -1, endIndex: -1, matchedText: '',
+    strategy: 'exact', confidence: 0, insertionIndex: -1, direction,
+  };
+
+  // Strategy 1: Find the anchor text directly in the prompt
+  const match = findTextInPrompt(prompt, anchor);
+  if (match.found) {
+    const insertionIndex = (direction === 'before' || direction === 'start-of-section')
+      ? match.startIndex
+      : match.endIndex;
+    return { ...match, insertionIndex, direction };
+  }
+
+  // Strategy 2: Section-level fallback — try to find a section matching the anchor
+  const sections = parseSemanticSections(prompt);
+  const anchorLower = anchor.toLowerCase()
+    .replace(/\s*\(.*\)\s*/g, '')
+    .trim();
+
+  const matchingSection = sections.find(s => {
+    const titleLower = s.title.toLowerCase();
+    const tagLower = s.tagName?.toLowerCase() || '';
+    if (titleLower === anchorLower || tagLower === anchorLower) return true;
+    if (titleLower.includes(anchorLower) && anchorLower.length > 3) return true;
+    if (anchorLower.includes(titleLower) && titleLower.length > 3) return true;
+    return false;
+  });
+
+  if (matchingSection) {
+    const insertionIndex = (direction === 'before' || direction === 'start-of-section')
+      ? matchingSection.startIndex
+      : matchingSection.endIndex;
+    return {
+      found: true,
+      startIndex: matchingSection.startIndex,
+      endIndex: matchingSection.endIndex,
+      matchedText: matchingSection.content,
+      strategy: 'normalized',
+      confidence: 0.8,
+      insertionIndex,
+      direction,
+    };
+  }
+
+  // Strategy 3: If sectionName provided, try matching by section name
+  if (sectionName) {
+    const sectionLower = sectionName.toLowerCase()
+      .replace(/\s*\(.*\)\s*/g, '')
+      .trim();
+    const sectionMatch = sections.find(s => {
+      const titleLower = s.title.toLowerCase();
+      const tagLower = s.tagName?.toLowerCase() || '';
+      if (titleLower === sectionLower || tagLower === sectionLower) return true;
+      if (titleLower.includes(sectionLower) && sectionLower.length > 3) return true;
+      if (sectionLower.includes(titleLower) && titleLower.length > 3) return true;
+      return false;
+    });
+
+    if (sectionMatch) {
+      // Insert at end of section by default
+      return {
+        found: true,
+        startIndex: sectionMatch.startIndex,
+        endIndex: sectionMatch.endIndex,
+        matchedText: sectionMatch.content,
+        strategy: 'normalized',
+        confidence: 0.6,
+        insertionIndex: sectionMatch.endIndex,
+        direction: 'end-of-section',
+      };
+    }
+  }
+
+  return notFound;
 }
 
 /**

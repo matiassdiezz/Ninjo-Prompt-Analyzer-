@@ -85,6 +85,7 @@ interface AnalysisStore {
 
   // Actions - Chat
   addChatMessage: (message: Omit<ChatMessage, 'id'>) => string;
+  updateMessageChangeStatus: (messageId: string, changeIndex: number, status: 'applied' | 'rejected' | 'pending') => void;
   clearChatMessages: () => void;
   getChatMessages: () => ChatMessage[];
 
@@ -410,6 +411,21 @@ export const useAnalysisStore = create<AnalysisStore>()(
           chatMessages: [...state.chatMessages, message],
         }));
         return message.id;
+      },
+
+      updateMessageChangeStatus: (messageId, changeIndex, status) => {
+        set((state) => ({
+          chatMessages: state.chatMessages.map((msg) => {
+            if (msg.id !== messageId) return msg;
+            const statuses = { ...(msg.changeStatuses || {}) };
+            if (status === 'pending') {
+              delete statuses[changeIndex];
+            } else {
+              statuses[changeIndex] = status;
+            }
+            return { ...msg, changeStatuses: Object.keys(statuses).length > 0 ? statuses : undefined };
+          }),
+        }));
       },
 
       clearChatMessages: () => {

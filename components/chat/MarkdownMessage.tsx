@@ -148,13 +148,17 @@ function CodeBlock({ children, className, onApply, onSaveToMemory }: CodeBlockPr
 
 interface MarkdownMessageProps {
   content: string;
+  messageId?: string;
+  persistedChangeStatuses?: Record<number, 'applied' | 'rejected'>;
   onApplyCode?: (code: string) => void;
   onSaveToMemory?: (code: string) => void;
   onNavigateToSection?: (section: string) => void;
   onApplyChange?: (change: ParsedChange) => void;
   onRejectChange?: (change: ParsedChange) => void;
+  onUndoChange?: (change: ParsedChange) => void;
   onSaveLearning?: (change: ParsedChange) => void;
   onApplyAllChanges?: (changes: ParsedChange[]) => void;
+  onChangeStatusUpdate?: (messageId: string, changeIndex: number, status: 'applied' | 'rejected' | 'pending') => void;
 }
 
 // Component to render text with section links
@@ -210,30 +214,51 @@ function TextWithSectionLinks({
 
 export function MarkdownMessage({
   content,
+  messageId,
+  persistedChangeStatuses,
   onApplyCode,
   onSaveToMemory,
   onNavigateToSection,
   onApplyChange,
   onRejectChange,
+  onUndoChange,
   onSaveLearning,
   onApplyAllChanges,
+  onChangeStatusUpdate,
 }: MarkdownMessageProps) {
-  const [changeStatuses, setChangeStatuses] = useState<Map<string, ChangeStatus>>(new Map());
-
   // Parse structured changes if present
   const parseResult = useMemo(() => {
     if (!hasStructuredChanges(content)) return null;
     return parseChanges(content);
   }, [content]);
 
+  // Initialize statuses from persisted data (keyed by index → mapped to change id)
+  const [changeStatuses, setChangeStatuses] = useState<Map<string, ChangeStatus>>(() => {
+    if (!persistedChangeStatuses || !parseResult) return new Map();
+    const map = new Map<string, ChangeStatus>();
+    for (const change of parseResult.changes) {
+      const persisted = persistedChangeStatuses[change.index];
+      if (persisted) map.set(change.id, persisted);
+    }
+    return map;
+  });
+
   const handleApply = (change: ParsedChange) => {
     setChangeStatuses(prev => new Map(prev).set(change.id, 'applied'));
     onApplyChange?.(change);
+    if (messageId) onChangeStatusUpdate?.(messageId, change.index, 'applied');
   };
 
   const handleReject = (change: ParsedChange) => {
     setChangeStatuses(prev => new Map(prev).set(change.id, 'rejected'));
     onRejectChange?.(change);
+    if (messageId) onChangeStatusUpdate?.(messageId, change.index, 'rejected');
+  };
+
+  const handleUndo = (change: ParsedChange) => {
+    setChangeStatuses(prev => new Map(prev).set(change.id, 'pending'));
+    onUndoChange?.(change);
+    if (messageId) onChangeStatusUpdate?.(messageId, change.index, 'pending');
   };
 
   const handleSaveLearning = (change: ParsedChange) => {
@@ -413,6 +438,10 @@ export function MarkdownMessage({
         pendingChanges.forEach((c) => next.set(c.id, 'applied'));
         return next;
       });
+      // Persist all statuses
+      if (messageId) {
+        pendingChanges.forEach((c) => onChangeStatusUpdate?.(messageId, c.index, 'applied'));
+      }
     };
 
     return (
@@ -463,6 +492,7 @@ export function MarkdownMessage({
               status={changeStatuses.get(change.id) || 'pending'}
               onApply={handleApply}
               onReject={handleReject}
+              onUndo={handleUndo}
               onSaveLearning={handleSaveLearning}
               onNavigateToSection={onNavigateToSection || (() => {})}
             />

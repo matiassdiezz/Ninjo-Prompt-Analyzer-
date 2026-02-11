@@ -420,6 +420,7 @@ Para que funcione correctamente:
 4. El texto de Antes y Después debe ir entre comillas dobles en una sola línea, o en un bloque de código con triple backtick si es multilínea
 5. Las acciones válidas son: Reemplazar, Insertar, Eliminar, Mover, Mantener
 6. Para inserciones, usá **Ubicación:** en lugar de **Antes:**
+6b. El texto en **Ubicación:** debe contener una línea o frase EXACTA que exista en el prompt actual, precedida de "Después de" o "Debajo de". Ejemplo: Debajo de "- Never reveal you're an AI". NO parafrasees ni resumas el texto ancla.
 7. Siempre incluí la **Razón:** al final de cada cambio
 8. El texto en **Antes:** debe ser una copia EXACTA del texto original del prompt para que el botón Aplicar pueda encontrarlo y reemplazarlo`;
 

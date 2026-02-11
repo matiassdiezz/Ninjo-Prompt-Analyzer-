@@ -6,6 +6,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  // Persisted statuses of structured changes (keyed by change index, which is stable across re-parses)
+  changeStatuses?: Record<number, 'applied' | 'rejected'>;
 }
 
 // Version with detailed change tracking
